@@ -19,7 +19,6 @@
         <spring-boot.version>2.7.18</spring-boot.version>
         <qlexpress4.version>4.0.7</qlexpress4.version>
         <luna-common.version>2.6.8</luna-common.version>
-        <httpclient5.version>5.2.1</httpclient5.version>
     </properties>
 
     <developers>
@@ -49,11 +48,6 @@
                 <groupId>io.github.lunasaw</groupId>
                 <artifactId>luna-common</artifactId>
                 <version>${luna-common.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.httpcomponents.client5</groupId>
-                <artifactId>httpclient5</artifactId>
-                <version>${httpclient5.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -141,6 +135,11 @@
                     <target>1.8</target>
                     <encoding>UTF-8</encoding>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.2</version>
             </plugin>
         </plugins>
     </build>
