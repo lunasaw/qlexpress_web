@@ -656,6 +656,26 @@ class QLToVisualParserIntegrationTest {
             return (double) intersection / union;
         }
 
+        // JSON输出目录
+        private static final String JSON_OUTPUT_DIR = "/Users/weidian/project/vdian/wd24/QLExpress_web/qlexpress_web/doc";
+
+        /**
+         * 将JSON保存到文件
+         */
+        private void saveJsonToFile(String json, String sourceFileName) throws IOException {
+            Path outputDir = Paths.get(JSON_OUTPUT_DIR);
+            if (!Files.exists(outputDir)) {
+                Files.createDirectories(outputDir);
+            }
+
+            // 从源文件名生成JSON文件名
+            String jsonFileName = sourceFileName.replaceAll("\\.(groovy|ql)$", "") + "_visual.json";
+            Path outputPath = outputDir.resolve(jsonFileName);
+
+            Files.write(outputPath, json.getBytes(StandardCharsets.UTF_8));
+            System.out.println("JSON已保存到: " + outputPath.toAbsolutePath());
+        }
+
         @Test
         @DisplayName("offWatch.groovy规则文件应能往返转换")
         @SuppressWarnings("unchecked")
@@ -711,6 +731,19 @@ class QLToVisualParserIntegrationTest {
                 }
             } else {
                 System.out.println("无关键元素差异");
+            }
+
+            // 保存JSON到文件
+            if (json != null) {
+                saveJsonToFile(json, "offWatch.groovy");
+            }
+
+            // 同时保存转译后的脚本
+            if (resultScript != null) {
+                Path outputDir = Paths.get(JSON_OUTPUT_DIR);
+                Path scriptPath = outputDir.resolve("offWatch_transpiled.ql");
+                Files.write(scriptPath, resultScript.getBytes(StandardCharsets.UTF_8));
+                System.out.println("转译脚本已保存到: " + scriptPath.toAbsolutePath());
             }
 
             // 输出原始脚本和转译后脚本用于人工比对
