@@ -1,13 +1,14 @@
-package io.github.lunasaw.app;
+package com.ql.qlexpress.web;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * @author luna
+ * QLExpress4 可视化编排 Web 应用启动类
+ *
+ * @author qlexpress
  * @version 1.0
- * @date 2023/12/2
- * @description:
+ * @date 2024/01/15
  */
 @SpringBootApplication
 public class Application {

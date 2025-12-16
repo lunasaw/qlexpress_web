@@ -1,4 +1,9 @@
+server:
+  port: 8080
+
 spring:
+  application:
+    name: qlexpress-web
   profiles:
     active: dev
 
@@ -6,3 +11,4 @@ logging:
   config: classpath:log/logback-spring.xml
   level:
     root: INFO
+    com.ql.qlexpress.web: DEBUG

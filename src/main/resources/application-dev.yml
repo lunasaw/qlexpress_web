@@ -1,6 +1,12 @@
-zlm:
-  nodes:
-    - server-id: zlm
-      host: "http://127.0.0.1:9092"
-      secret: zlm
-      enabled: true
+# QLExpress4 可视化编排 Web 应用 - 开发环境配置
+qlexpress:
+  # 脚本执行配置
+  script:
+    # 执行超时时间（毫秒）
+    timeout: 30000
+    # 是否启用缓存
+    cache-enabled: true
+    # 是否启用表达式追踪
+    trace-enabled: true
+    # 是否开启调试模式
+    debug: true

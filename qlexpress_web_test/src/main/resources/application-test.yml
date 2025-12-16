@@ -1,0 +1,7 @@
+# QLExpress4 Ô∆í Web î(K’!W - K’ØÉMn
+qlexpress:
+  script:
+    timeout: 10000
+    cache-enabled: true
+    trace-enabled: false
+    debug: false

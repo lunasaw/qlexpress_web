@@ -6,20 +6,20 @@
 
     <version>1.0.0</version>
     <groupId>io.github.lunasaw</groupId>
-    <artifactId>project-starter-test</artifactId>
+    <artifactId>qlexpress_web_test</artifactId>
     <packaging>jar</packaging>
-    <name>project-starter-test</name>
-    <description>ZLMediaKit restful api and hook starter test</description>
-    <url>https://github.com/lunasaw/gb28181-proxy</url>
-
+    <name>qlexpress-web-test</name>
+    <description>QLExpress4 可视化编排 Web 应用测试模块</description>
+    <url>https://github.com/alibaba/QLExpress</url>
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <luna-common.version>2.5.2</luna-common.version>
+        <luna-common.version>2.6.8</luna-common.version>
         <spring-boot.version>2.7.18</spring-boot.version>
     </properties>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -36,10 +36,11 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>io.github.lunasaw</groupId>
-            <artifactId>project-starter</artifactId>
+            <artifactId>qlexpress_web</artifactId>
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
@@ -67,12 +68,12 @@
         </dependency>
     </dependencies>
 
-
     <build>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
             </plugin>
         </plugins>
     </build>

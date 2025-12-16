@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration debug="false">
     <!--定义日志文件的存储地址 -->
-    <springProperty scop="context" name="spring.application.name" source="spring.application.name" defaultValue=""/>
-    <property name="LOG_HOME" value="logs"/>
+    <springProperty scop="context" name="spring.application.name" source="spring.application.name" defaultValue="qlexpress-web-test"/>
+    <Property name="application.name" value="${spring.application.name}"/>
+    <property name="LOG_HOME" value="${user.home}/logs/${application.name}"/>
 
     <substitutionProperty name="log.pattern"
                           value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS,GMT+8}){faint} %clr(%5p) %clr(---){faint} %clr(%-1.30logger{0}){cyan} %clr(:){faint} %X{traceId} %X{deviceId} %m%n%wEx"/>
@@ -31,11 +32,11 @@
 
     <!-- 按照每天生成日志文件 DEBUG以上级别的日志,仅用于测试环境,正式环境为info级别以上的日志-->
     <appender name="INFO_LOG" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_HOME}/info.log</file>
+        <file>${LOG_HOME}/${application.name}-info.log</file>
         <!-- 文件路径 -->
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <!--历史日志文件输出的文件名 -->
-            <fileNamePattern>${LOG_HOME}/sip-proxy.log.%d{yyyy-MM-dd}.%i</fileNamePattern>
+            <fileNamePattern>${LOG_HOME}/${application.name}-info.log.%d{yyyy-MM-dd}.%i</fileNamePattern>
             <!--日志文件保留天数 -->
             <MaxHistory>7</MaxHistory>
             <maxFileSize>50MB</maxFileSize>
@@ -43,7 +44,6 @@
         </rollingPolicy>
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符 -->
-            <!--<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50}:%L - %X{traceId} %X{deviceId} %msg%n</pattern>-->
             <pattern>${pattern}</pattern>
             <charset>UTF-8</charset>
         </encoder>
@@ -56,10 +56,10 @@
 
     <!-- 生成 error格式日志开始 -->
     <appender name="ERROR_LOG" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_HOME}/error.log</file>
+        <file>${LOG_HOME}/${application.name}-error.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <!--历史日志文件输出的文件名 -->
-            <fileNamePattern>${LOG_HOME}/sip-proxy-error.log.%d{yyyy-MM-dd}.%i</fileNamePattern>
+            <fileNamePattern>${LOG_HOME}/${application.name}-error.log.%d{yyyy-MM-dd}.%i</fileNamePattern>
             <!--日志文件保留天数 -->
             <MaxHistory>7</MaxHistory>
             <maxFileSize>50MB</maxFileSize>
@@ -67,7 +67,6 @@
         </rollingPolicy>
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符 -->
-            <!--<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50}:%L -%X{traceId} %X{deviceId} %msg%n</pattern>-->
             <pattern>${pattern}</pattern>
             <charset>UTF-8</charset>
         </encoder>
