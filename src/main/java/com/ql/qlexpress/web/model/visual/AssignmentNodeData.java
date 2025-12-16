@@ -17,6 +17,11 @@ public class AssignmentNodeData extends NodeData {
     private String variable;
 
     /**
+     * 变量类型（可选，用于变量声明）
+     */
+    private String variableType;
+
+    /**
      * 赋值表达式
      */
     private Expression value;

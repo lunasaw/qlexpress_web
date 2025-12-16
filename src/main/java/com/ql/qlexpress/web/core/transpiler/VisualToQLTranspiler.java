@@ -176,6 +176,12 @@ public class VisualToQLTranspiler {
 
             // 函数签名
             sb.append(context.getIndent());
+
+            // 修饰符（如果有）
+            if (func.getModifier() != null && !func.getModifier().isEmpty()) {
+                sb.append(func.getModifier()).append(" ");
+            }
+
             if (func.getReturnType() != null && !func.getReturnType().isEmpty()) {
                 sb.append(func.getReturnType()).append(" ");
             }
@@ -200,7 +206,23 @@ public class VisualToQLTranspiler {
 
             // 函数体
             context.indent();
-            if (func.getBodyEntrance() != null) {
+
+            // 优先使用FunctionBody（包含独立的节点和边）
+            if (func.hasBody()) {
+                FunctionBody body = func.getBody();
+                // 构建函数体的子图
+                FlowGraph bodyGraph = FlowGraph.build(body.getNodes(), body.getEdges());
+
+                String entranceId = func.getEffectiveEntrance();
+                if (entranceId != null) {
+                    VisualNode bodyEntry = bodyGraph.getNode(entranceId);
+                    if (bodyEntry != null) {
+                        Set<String> visited = new HashSet<>();
+                        generateNodeCode(bodyEntry, bodyGraph, sb, context, visited);
+                    }
+                }
+            } else if (func.getBodyEntrance() != null) {
+                // 兼容旧格式：使用主图中的入口节点
                 VisualNode bodyEntry = graph.getNode(func.getBodyEntrance());
                 if (bodyEntry != null) {
                     Set<String> visited = new HashSet<>();
@@ -359,6 +381,12 @@ public class VisualToQLTranspiler {
         }
 
         sb.append(context.getIndent());
+
+        // 变量类型（如果有）
+        if (data.getVariableType() != null && !data.getVariableType().isEmpty()) {
+            sb.append(data.getVariableType()).append(" ");
+        }
+
         sb.append(data.getVariable()).append(" = ");
 
         if (data.getValue() != null) {
@@ -376,8 +404,8 @@ public class VisualToQLTranspiler {
      */
     private void generateFunctionCallNode(VisualNode node, FunctionCallNodeData data,
                                           StringBuilder sb, TranspileContext context) {
-        if (data == null || data.getFunctionName() == null || data.getFunctionName().isEmpty()) {
-            context.addWarning(node.getId(), "INVALID_FUNCTION_CALL", "函数调用节点缺少函数名");
+        if (data == null) {
+            context.addWarning(node.getId(), "INVALID_FUNCTION_CALL", "函数调用节点数据为空");
             return;
         }
 
@@ -387,18 +415,28 @@ public class VisualToQLTranspiler {
             sb.append(data.getResultVariable()).append(" = ");
         }
 
-        sb.append(data.getFunctionName()).append("(");
+        // 优先使用expression字段（支持复杂的方法调用链）
+        if (data.getExpression() != null) {
+            sb.append(data.getExpression().toQL());
+        } else if (data.getFunctionName() != null && !data.getFunctionName().isEmpty()) {
+            sb.append(data.getFunctionName()).append("(");
 
-        // 参数
-        if (data.getArguments() != null && !data.getArguments().isEmpty()) {
-            List<String> args = new ArrayList<>();
-            for (Expression arg : data.getArguments()) {
-                args.add(arg.toQL());
+            // 参数
+            if (data.getArguments() != null && !data.getArguments().isEmpty()) {
+                List<String> args = new ArrayList<>();
+                for (Expression arg : data.getArguments()) {
+                    args.add(arg.toQL());
+                }
+                sb.append(String.join(", ", args));
             }
-            sb.append(String.join(", ", args));
+
+            sb.append(")");
+        } else {
+            context.addWarning(node.getId(), "INVALID_FUNCTION_CALL", "函数调用节点缺少函数名或表达式");
+            return;
         }
 
-        sb.append(");");
+        sb.append(";");
         appendNewLine(sb, context);
     }
 
@@ -431,6 +469,24 @@ public class VisualToQLTranspiler {
         }
         context.dedent();
 
+        // else if 分支
+        if (data.hasElseIfBranches()) {
+            for (ElseIfBranch elseIfBranch : data.getElseIfBranches()) {
+                sb.append(context.getIndent()).append("} else if (");
+                sb.append(elseIfBranch.getCondition().toQL()).append(") {");
+                appendNewLine(sb, context);
+
+                context.indent();
+                VisualNode elseIfNode = elseIfBranch.getBranchNodeId() != null ?
+                        graph.getNode(elseIfBranch.getBranchNodeId()) : null;
+                if (elseIfNode != null) {
+                    Set<String> elseIfVisited = new HashSet<>(visited);
+                    generateNodeCode(elseIfNode, graph, sb, context, elseIfVisited);
+                }
+                context.dedent();
+            }
+        }
+
         // else分支
         VisualNode elseNode = data.getElseBranch() != null ? graph.getNode(data.getElseBranch()) : null;
         if (elseNode == null) {
@@ -455,10 +511,28 @@ public class VisualToQLTranspiler {
         int endLine = context.getCurrentLine();
         context.addSourceMapping(node.getId(), startLine, endLine);
 
-        // 处理if���点的默认后续（跳过then/else分支的出口）
-        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
-        if (nextNode != null && !visited.contains(nextNode.getId())) {
-            generateNodeCode(nextNode, graph, sb, context, visited);
+        // 处理if节点的后续节点
+        // 首先收集已经作为分支处理过的节点ID
+        Set<String> branchNodeIds = new HashSet<>();
+        if (data.getThenBranch() != null) {
+            branchNodeIds.add(data.getThenBranch());
+        }
+        if (data.getElseBranch() != null) {
+            branchNodeIds.add(data.getElseBranch());
+        }
+        if (data.hasElseIfBranches()) {
+            for (ElseIfBranch elseIfBranch : data.getElseIfBranches()) {
+                if (elseIfBranch.getBranchNodeId() != null) {
+                    branchNodeIds.add(elseIfBranch.getBranchNodeId());
+                }
+            }
+        }
+
+        // 找到不是分支的后续节点
+        for (VisualNode successor : graph.getSuccessors(node.getId())) {
+            if (!branchNodeIds.contains(successor.getId()) && !visited.contains(successor.getId())) {
+                generateNodeCode(successor, graph, sb, context, visited);
+            }
         }
     }
 
@@ -516,10 +590,12 @@ public class VisualToQLTranspiler {
         int endLine = context.getCurrentLine();
         context.addSourceMapping(node.getId(), startLine, endLine);
 
-        // 处理for节点的后续节点
-        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
-        if (nextNode != null && !visited.contains(nextNode.getId())) {
-            generateNodeCode(nextNode, graph, sb, context, visited);
+        // 处理for节点的后续节点（排除循环体入口）
+        String bodyEntranceId = data.getBodyEntrance();
+        for (VisualNode successor : graph.getSuccessors(node.getId())) {
+            if (!successor.getId().equals(bodyEntranceId) && !visited.contains(successor.getId())) {
+                generateNodeCode(successor, graph, sb, context, visited);
+            }
         }
     }
 
@@ -559,10 +635,12 @@ public class VisualToQLTranspiler {
         int endLine = context.getCurrentLine();
         context.addSourceMapping(node.getId(), startLine, endLine);
 
-        // 处理while节点的后续节点
-        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
-        if (nextNode != null && !visited.contains(nextNode.getId())) {
-            generateNodeCode(nextNode, graph, sb, context, visited);
+        // 处理while节点的后续节点（排除循环体入口）
+        String bodyEntranceId = data.getBodyEntrance();
+        for (VisualNode successor : graph.getSuccessors(node.getId())) {
+            if (!successor.getId().equals(bodyEntranceId) && !visited.contains(successor.getId())) {
+                generateNodeCode(successor, graph, sb, context, visited);
+            }
         }
     }
 
@@ -636,10 +714,12 @@ public class VisualToQLTranspiler {
         int endLine = context.getCurrentLine();
         context.addSourceMapping(node.getId(), startLine, endLine);
 
-        // 处理foreach节点的后续节点
-        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
-        if (nextNode != null && !visited.contains(nextNode.getId())) {
-            generateNodeCode(nextNode, graph, sb, context, visited);
+        // 处理foreach节点的后续节点（排除循环体入口）
+        String bodyBranchId = data.getBodyBranch();
+        for (VisualNode successor : graph.getSuccessors(node.getId())) {
+            if (!successor.getId().equals(bodyBranchId) && !visited.contains(successor.getId())) {
+                generateNodeCode(successor, graph, sb, context, visited);
+            }
         }
     }
 
@@ -757,10 +837,26 @@ public class VisualToQLTranspiler {
         int endLine = context.getCurrentLine();
         context.addSourceMapping(node.getId(), startLine, endLine);
 
-        // 处理try_catch节点的后续节点
-        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
-        if (nextNode != null && !visited.contains(nextNode.getId())) {
-            generateNodeCode(nextNode, graph, sb, context, visited);
+        // 处理try_catch节点的后续节点（排除已处理的分支）
+        Set<String> branchNodeIds = new HashSet<>();
+        if (data.getTryBranch() != null) {
+            branchNodeIds.add(data.getTryBranch());
+        }
+        if (data.getFinallyBranch() != null) {
+            branchNodeIds.add(data.getFinallyBranch());
+        }
+        if (data.getCatchHandlers() != null) {
+            for (TryCatchNodeData.CatchHandler handler : data.getCatchHandlers()) {
+                if (handler.getCatchBranch() != null) {
+                    branchNodeIds.add(handler.getCatchBranch());
+                }
+            }
+        }
+
+        for (VisualNode successor : graph.getSuccessors(node.getId())) {
+            if (!branchNodeIds.contains(successor.getId()) && !visited.contains(successor.getId())) {
+                generateNodeCode(successor, graph, sb, context, visited);
+            }
         }
     }
 

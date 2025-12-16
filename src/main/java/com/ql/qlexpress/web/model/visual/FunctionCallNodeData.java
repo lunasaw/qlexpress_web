@@ -28,4 +28,9 @@ public class FunctionCallNodeData extends NodeData {
      * 结果变量名（可选，用于存储函数返回值）
      */
     private String resultVariable;
+
+    /**
+     * 完整的调用表达式（用于复杂调用如方法链）
+     */
+    private Expression expression;
 }

@@ -1,5 +1,6 @@
 package com.ql.qlexpress.web.model.visual;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -33,7 +34,9 @@ public class OperatorExpression extends Expression {
 
     /**
      * 是否为一元操作符
+     * 使用JsonIgnore防止Jackson序列化时生成unary字段
      */
+    @JsonIgnore
     public boolean isUnary() {
         return right == null;
     }

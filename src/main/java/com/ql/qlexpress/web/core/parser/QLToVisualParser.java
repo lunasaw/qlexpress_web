@@ -9,11 +9,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * QL脚本到可视化流程的解析器
  *
  * 将QL脚本文本解析为可视化流程图JSON结构
+ * 支持完整的QL语法，包括：
+ * - import语句
+ * - 函数定义
+ * - if/else if/else
+ * - for/foreach/while循环
+ * - try-catch-finally
+ * - 类型转换、new表达式
+ * - 方法调用链
  *
  * @author qlexpress
  */
@@ -22,16 +32,9 @@ import java.util.*;
 public class QLToVisualParser {
 
     private final Express4Runner runner;
-
-    /**
-     * 节点ID计数器
-     */
-    private int nodeIdCounter;
-
-    /**
-     * 边ID计数器
-     */
-    private int edgeIdCounter;
+    private final StatementParser statementParser;
+    private final StatementParser.NodeIdGenerator nodeIdGenerator;
+    private final StatementParser.EdgeIdGenerator edgeIdGenerator;
 
     /**
      * 节点Y坐标偏移
@@ -43,8 +46,14 @@ public class QLToVisualParser {
      */
     private static final int NODE_X_BASE = 250;
 
+    // import语句模式
+    private static final Pattern IMPORT_PATTERN = Pattern.compile("^import\\s+([a-zA-Z_$][a-zA-Z0-9_$.]*);?$");
+
     public QLToVisualParser() {
         this.runner = new Express4Runner(InitOptions.builder().build());
+        this.nodeIdGenerator = new StatementParser.NodeIdGenerator();
+        this.edgeIdGenerator = new StatementParser.EdgeIdGenerator();
+        this.statementParser = new StatementParser(nodeIdGenerator, edgeIdGenerator);
     }
 
     /**
@@ -57,90 +66,96 @@ public class QLToVisualParser {
         log.info("开始解析QL脚本，长度: {} 字符", script.length());
 
         // 重置计数器
-        nodeIdCounter = 0;
-        edgeIdCounter = 0;
+        nodeIdGenerator.reset();
+        edgeIdGenerator.reset();
 
         try {
             // 首先验证脚本语法
             runner.check(script);
 
-            // 解析语法树
+            // 解析语法树（用于语法验证）
             QLParser.ProgramContext programContext = runner.parseToSyntaxTree(script);
 
-            // 创建节点和边列表
-            List<VisualNode> nodes = new ArrayList<>();
-            List<VisualEdge> edges = new ArrayList<>();
+            // 构建流程定义
+            VisualFlowSchema flow = new VisualFlowSchema();
+            flow.setVersion("2.0");
+
+            // 存储解析结果
+            List<String> imports = new ArrayList<>();
+            List<FunctionDefinition> functions = new ArrayList<>();
+            List<VisualNode> mainFlowNodes = new ArrayList<>();
+            List<VisualEdge> mainFlowEdges = new ArrayList<>();
+
+            // 分割语句
+            List<String> statements = splitTopLevelStatements(script);
 
             // 添加起始节点
             VisualNode startNode = createStartNode();
-            nodes.add(startNode);
+            mainFlowNodes.add(startNode);
 
-            // 解析脚本语句
             String prevNodeId = startNode.getId();
             int yPos = NODE_Y_OFFSET;
 
-            // 简化解析：按行分割脚本并解析每个语句
-            String[] lines = script.split("\n");
-            StringBuilder currentStatement = new StringBuilder();
-            int braceCount = 0;
-
-            for (String line : lines) {
-                String trimmedLine = line.trim();
-                if (trimmedLine.isEmpty() || trimmedLine.startsWith("//")) {
+            // 解析每个语句
+            for (String statement : statements) {
+                String trimmed = statement.trim();
+                if (trimmed.isEmpty()) {
                     continue;
                 }
 
-                currentStatement.append(line).append("\n");
-
-                // 计算大括号数量
-                for (char c : trimmedLine.toCharArray()) {
-                    if (c == '{') braceCount++;
-                    else if (c == '}') braceCount--;
+                // 处理import语句
+                Matcher importMatcher = IMPORT_PATTERN.matcher(trimmed);
+                if (importMatcher.matches()) {
+                    imports.add(importMatcher.group(1));
+                    continue;
                 }
 
-                // 当语句完整时（大括号平衡且以分号或大括号结束）
-                if (braceCount == 0 && (trimmedLine.endsWith(";") || trimmedLine.endsWith("}"))) {
-                    String statement = currentStatement.toString().trim();
-                    currentStatement = new StringBuilder();
-
-                    if (!statement.isEmpty()) {
-                        yPos += NODE_Y_OFFSET;
-                        StatementParseResult result = parseStatement(statement, yPos);
-
-                        if (result != null && !result.nodes.isEmpty()) {
-                            nodes.addAll(result.nodes);
-                            edges.addAll(result.edges);
-
-                            // 连接前一个节点到当前语句的第一个节点
-                            String firstNodeId = result.nodes.get(0).getId();
-                            edges.add(createEdge(prevNodeId, firstNodeId));
-
-                            // 更新前一个节点ID
-                            prevNodeId = result.lastNodeId;
-                            yPos = result.lastY;
-                        }
+                // 处理函数定义
+                if (trimmed.startsWith("function ")) {
+                    StatementParser.StatementParseResult result = statementParser.parseStatement(trimmed, yPos);
+                    if (result != null && result.getFunctionDefinition() != null) {
+                        functions.add(result.getFunctionDefinition());
                     }
+                    continue;
+                }
+
+                // 处理普通语句
+                yPos += NODE_Y_OFFSET;
+                StatementParser.StatementParseResult result = statementParser.parseStatement(trimmed, yPos);
+
+                if (result != null && !result.getNodes().isEmpty()) {
+                    mainFlowNodes.addAll(result.getNodes());
+                    mainFlowEdges.addAll(result.getEdges());
+
+                    // 连接前一个节点到当前语句的第一个节点
+                    String firstNodeId = result.getNodes().get(0).getId();
+                    mainFlowEdges.add(createEdge(prevNodeId, firstNodeId));
+
+                    // 更新前一个节点ID
+                    prevNodeId = result.getLastNodeId();
+                    yPos = result.getLastY();
                 }
             }
 
             // 添加结束节点
             yPos += NODE_Y_OFFSET;
             VisualNode endNode = createEndNode(yPos);
-            nodes.add(endNode);
-            edges.add(createEdge(prevNodeId, endNode.getId()));
+            mainFlowNodes.add(endNode);
+            mainFlowEdges.add(createEdge(prevNodeId, endNode.getId()));
 
-            // 构建流程定义
-            VisualFlowSchema flow = new VisualFlowSchema();
-            flow.setVersion("1.0");
-            flow.setNodes(nodes);
-            flow.setEdges(edges);
+            // 设置流程定义
+            flow.setImports(imports);
+            flow.setFunctions(functions);
+            flow.setNodes(mainFlowNodes);
+            flow.setEdges(mainFlowEdges);
 
             FlowMetadata metadata = new FlowMetadata();
             metadata.setName("解析的流程");
             metadata.setDescription("从QL脚本解析生成");
             flow.setMetadata(metadata);
 
-            log.info("QL脚本解析成功，生成节点: {}个，边: {}条", nodes.size(), edges.size());
+            log.info("QL脚本解析成功，imports: {}个，functions: {}个，节点: {}个，边: {}条",
+                    imports.size(), functions.size(), mainFlowNodes.size(), mainFlowEdges.size());
 
             return ParseResult.success(flow);
 
@@ -154,274 +169,118 @@ public class QLToVisualParser {
     }
 
     /**
-     * 解析单个语句
+     * 分割顶层语句
+     * 正确处理 if-else-if-else, try-catch-finally 等复合语句
      */
-    private StatementParseResult parseStatement(String statement, int yPos) {
-        String trimmed = statement.trim();
+    private List<String> splitTopLevelStatements(String script) {
+        List<String> statements = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int braceDepth = 0;
+        int parenDepth = 0;
+        boolean inString = false;
+        char stringChar = 0;
+        boolean inLineComment = false;
+        boolean inBlockComment = false;
 
-        // if语句
-        if (trimmed.startsWith("if")) {
-            return parseIfStatement(trimmed, yPos);
-        }
+        for (int i = 0; i < script.length(); i++) {
+            char c = script.charAt(i);
+            char next = (i + 1 < script.length()) ? script.charAt(i + 1) : 0;
 
-        // for语句
-        if (trimmed.startsWith("for")) {
-            return parseForStatement(trimmed, yPos);
-        }
+            // 处理注释
+            if (!inString) {
+                if (!inBlockComment && c == '/' && next == '/') {
+                    inLineComment = true;
+                }
+                if (inLineComment && c == '\n') {
+                    inLineComment = false;
+                    continue;
+                }
+                if (inLineComment) {
+                    continue;
+                }
+                if (!inLineComment && c == '/' && next == '*') {
+                    inBlockComment = true;
+                    i++;
+                    continue;
+                }
+                if (inBlockComment && c == '*' && next == '/') {
+                    inBlockComment = false;
+                    i++;
+                    continue;
+                }
+                if (inBlockComment) {
+                    continue;
+                }
+            }
 
-        // while语句
-        if (trimmed.startsWith("while")) {
-            return parseWhileStatement(trimmed, yPos);
-        }
+            // 处理字符串
+            if (!inString && (c == '"' || c == '\'')) {
+                inString = true;
+                stringChar = c;
+                current.append(c);
+                continue;
+            }
+            if (inString) {
+                current.append(c);
+                if (c == stringChar && (current.length() < 2 || current.charAt(current.length() - 2) != '\\')) {
+                    inString = false;
+                }
+                continue;
+            }
 
-        // return语句
-        if (trimmed.startsWith("return")) {
-            return parseReturnStatement(trimmed, yPos);
-        }
+            // 处理括号深度
+            if (c == '{') braceDepth++;
+            else if (c == '}') braceDepth--;
+            else if (c == '(') parenDepth++;
+            else if (c == ')') parenDepth--;
 
-        // 赋值语句
-        if (trimmed.contains("=") && !trimmed.contains("==") && !trimmed.contains("!=")
-                && !trimmed.contains(">=") && !trimmed.contains("<=")) {
-            return parseAssignmentStatement(trimmed, yPos);
-        }
+            current.append(c);
 
-        // 函数调用
-        if (trimmed.matches("\\w+\\s*\\(.*\\)\\s*;?")) {
-            return parseFunctionCallStatement(trimmed, yPos);
-        }
-
-        // 默认作为表达式处理
-        return parseExpressionStatement(trimmed, yPos);
-    }
-
-    /**
-     * 解析if语句
-     */
-    private StatementParseResult parseIfStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        // 提取条件
-        int condStart = statement.indexOf('(');
-        int condEnd = findMatchingParen(statement, condStart);
-        String condition = statement.substring(condStart + 1, condEnd).trim();
-
-        // 创建if节点
-        String nodeId = generateNodeId();
-        VisualNode ifNode = new VisualNode();
-        ifNode.setId(nodeId);
-        ifNode.setType("if");
-        ifNode.setPosition(new Position(NODE_X_BASE, yPos));
-
-        IfNodeData data = new IfNodeData();
-        data.setLabel("if (" + condition + ")");
-        data.setCondition(Expression.variable(condition));
-        ifNode.setData(data);
-
-        nodes.add(ifNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
-    }
-
-    /**
-     * 解析for语句
-     */
-    private StatementParseResult parseForStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        // 提取for循环部分
-        int parenStart = statement.indexOf('(');
-        int parenEnd = findMatchingParen(statement, parenStart);
-        String forContent = statement.substring(parenStart + 1, parenEnd);
-
-        String[] parts = forContent.split(";");
-        String init = parts.length > 0 ? parts[0].trim() : "";
-        String condition = parts.length > 1 ? parts[1].trim() : "";
-        String update = parts.length > 2 ? parts[2].trim() : "";
-
-        // 创建for节点
-        String nodeId = generateNodeId();
-        VisualNode forNode = new VisualNode();
-        forNode.setId(nodeId);
-        forNode.setType("for");
-        forNode.setPosition(new Position(NODE_X_BASE, yPos));
-
-        ForNodeData data = new ForNodeData();
-        data.setLabel("for (" + init + "; " + condition + "; " + update + ")");
-        data.setInit(Expression.variable(init));
-        data.setCondition(Expression.variable(condition));
-        data.setUpdate(Expression.variable(update));
-        forNode.setData(data);
-
-        nodes.add(forNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
-    }
-
-    /**
-     * 解析while语句
-     */
-    private StatementParseResult parseWhileStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        // 提取条件
-        int condStart = statement.indexOf('(');
-        int condEnd = findMatchingParen(statement, condStart);
-        String condition = statement.substring(condStart + 1, condEnd).trim();
-
-        // 创建while节点
-        String nodeId = generateNodeId();
-        VisualNode whileNode = new VisualNode();
-        whileNode.setId(nodeId);
-        whileNode.setType("while");
-        whileNode.setPosition(new Position(NODE_X_BASE, yPos));
-
-        WhileNodeData data = new WhileNodeData();
-        data.setLabel("while (" + condition + ")");
-        data.setCondition(Expression.variable(condition));
-        whileNode.setData(data);
-
-        nodes.add(whileNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
-    }
-
-    /**
-     * 解析return语句
-     */
-    private StatementParseResult parseReturnStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        // 提取返回值
-        String returnValue = statement.replaceFirst("return\\s*", "")
-                .replace(";", "").trim();
-
-        String nodeId = generateNodeId();
-        VisualNode returnNode = new VisualNode();
-        returnNode.setId(nodeId);
-        returnNode.setType("return");
-        returnNode.setPosition(new Position(NODE_X_BASE, yPos));
-
-        ReturnNodeData data = new ReturnNodeData();
-        data.setLabel("return " + returnValue);
-        data.setValue(returnValue.isEmpty() ? null : Expression.variable(returnValue));
-        returnNode.setData(data);
-
-        nodes.add(returnNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
-    }
-
-    /**
-     * 解析赋值语句
-     */
-    private StatementParseResult parseAssignmentStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        // 分割变量和值
-        int eqIndex = statement.indexOf('=');
-        String varPart = statement.substring(0, eqIndex).trim();
-        String valuePart = statement.substring(eqIndex + 1).replace(";", "").trim();
-
-        // 检查是否有类型声明
-        String varName = varPart;
-        String varType = null;
-        String[] varParts = varPart.split("\\s+");
-        if (varParts.length > 1) {
-            varType = varParts[0];
-            varName = varParts[varParts.length - 1];
-        }
-
-        String nodeId = generateNodeId();
-        VisualNode assignNode = new VisualNode();
-        assignNode.setId(nodeId);
-        assignNode.setType("assignment");
-        assignNode.setPosition(new Position(NODE_X_BASE, yPos));
-
-        AssignmentNodeData data = new AssignmentNodeData();
-        String label = varType != null ? varType + " " + varName + " = " + valuePart : varName + " = " + valuePart;
-        data.setLabel(label);
-        data.setVariable(varName);
-        data.setValue(Expression.variable(valuePart));
-        assignNode.setData(data);
-
-        nodes.add(assignNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
-    }
-
-    /**
-     * 解析函数调用语句
-     */
-    private StatementParseResult parseFunctionCallStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        // 提取函数名和参数
-        int parenStart = statement.indexOf('(');
-        String funcName = statement.substring(0, parenStart).trim();
-        int parenEnd = findMatchingParen(statement, parenStart);
-        String argsStr = statement.substring(parenStart + 1, parenEnd).trim();
-
-        List<Expression> args = new ArrayList<>();
-        if (!argsStr.isEmpty()) {
-            String[] argParts = argsStr.split(",");
-            for (String arg : argParts) {
-                args.add(Expression.variable(arg.trim()));
+            // 语句结束条件（在顶层）
+            if (braceDepth == 0 && parenDepth == 0) {
+                if (c == ';') {
+                    String stmt = current.toString().trim();
+                    if (!stmt.isEmpty()) {
+                        statements.add(stmt);
+                    }
+                    current = new StringBuilder();
+                } else if (c == '}') {
+                    // 检查后面是否跟着 else, catch, finally 等关键字
+                    String remaining = script.substring(i + 1).trim();
+                    if (startsWithContinuationKeyword(remaining)) {
+                        // 继续累积，不分割
+                        continue;
+                    }
+                    String stmt = current.toString().trim();
+                    if (!stmt.isEmpty()) {
+                        statements.add(stmt);
+                    }
+                    current = new StringBuilder();
+                }
             }
         }
 
-        String nodeId = generateNodeId();
-        VisualNode funcNode = new VisualNode();
-        funcNode.setId(nodeId);
-        funcNode.setType("function_call");
-        funcNode.setPosition(new Position(NODE_X_BASE, yPos));
+        // 处理剩余内容
+        String remaining = current.toString().trim();
+        if (!remaining.isEmpty()) {
+            statements.add(remaining);
+        }
 
-        FunctionCallNodeData data = new FunctionCallNodeData();
-        data.setLabel(funcName + "()");
-        data.setFunctionName(funcName);
-        data.setArguments(args);
-        funcNode.setData(data);
-
-        nodes.add(funcNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
+        return statements;
     }
 
     /**
-     * 解析表达式语句
+     * 检查是否以继续关键字开头（else, catch, finally）
      */
-    private StatementParseResult parseExpressionStatement(String statement, int yPos) {
-        List<VisualNode> nodes = new ArrayList<>();
-        List<VisualEdge> edges = new ArrayList<>();
-
-        String expr = statement.replace(";", "").trim();
-
-        String nodeId = generateNodeId();
-        VisualNode exprNode = new VisualNode();
-        exprNode.setId(nodeId);
-        exprNode.setType("expression");
-        exprNode.setPosition(new Position(NODE_X_BASE, yPos));
-
-        ExpressionNodeData data = new ExpressionNodeData();
-        data.setLabel(expr);
-        data.setExpression(Expression.variable(expr));
-        exprNode.setData(data);
-
-        nodes.add(exprNode);
-
-        return new StatementParseResult(nodes, edges, nodeId, yPos);
+    private boolean startsWithContinuationKeyword(String text) {
+        return text.startsWith("else") || text.startsWith("catch") || text.startsWith("finally");
     }
 
     /**
      * 创建起始节点
      */
     private VisualNode createStartNode() {
-        String nodeId = generateNodeId();
+        String nodeId = nodeIdGenerator.generate();
         VisualNode startNode = new VisualNode();
         startNode.setId(nodeId);
         startNode.setType("start");
@@ -438,7 +297,7 @@ public class QLToVisualParser {
      * 创建结束节点
      */
     private VisualNode createEndNode(int yPos) {
-        String nodeId = generateNodeId();
+        String nodeId = nodeIdGenerator.generate();
         VisualNode endNode = new VisualNode();
         endNode.setId(nodeId);
         endNode.setType("end");
@@ -456,57 +315,10 @@ public class QLToVisualParser {
      */
     private VisualEdge createEdge(String source, String target) {
         VisualEdge edge = new VisualEdge();
-        edge.setId(generateEdgeId());
+        edge.setId(edgeIdGenerator.generate());
         edge.setSource(source);
         edge.setTarget(target);
         return edge;
-    }
-
-    /**
-     * 生成节点ID
-     */
-    private String generateNodeId() {
-        return "node_" + (++nodeIdCounter);
-    }
-
-    /**
-     * 生成边ID
-     */
-    private String generateEdgeId() {
-        return "edge_" + (++edgeIdCounter);
-    }
-
-    /**
-     * 查找匹配的括号
-     */
-    private int findMatchingParen(String str, int start) {
-        int count = 1;
-        for (int i = start + 1; i < str.length(); i++) {
-            if (str.charAt(i) == '(') count++;
-            else if (str.charAt(i) == ')') {
-                count--;
-                if (count == 0) return i;
-            }
-        }
-        return str.length() - 1;
-    }
-
-    /**
-     * 语句解析结果
-     */
-    private static class StatementParseResult {
-        final List<VisualNode> nodes;
-        final List<VisualEdge> edges;
-        final String lastNodeId;
-        final int lastY;
-
-        StatementParseResult(List<VisualNode> nodes, List<VisualEdge> edges,
-                            String lastNodeId, int lastY) {
-            this.nodes = nodes;
-            this.edges = edges;
-            this.lastNodeId = lastNodeId;
-            this.lastY = lastY;
-        }
     }
 
     /**

@@ -18,6 +18,12 @@ import java.util.List;
         @JsonSubTypes.Type(value = FunctionExpression.class, name = "function"),
         @JsonSubTypes.Type(value = MethodExpression.class, name = "method"),
         @JsonSubTypes.Type(value = RawExpression.class, name = "raw"),
+        @JsonSubTypes.Type(value = StaticMethodExpression.class, name = "static_method"),
+        @JsonSubTypes.Type(value = NewExpression.class, name = "new"),
+        @JsonSubTypes.Type(value = CastExpression.class, name = "cast"),
+        @JsonSubTypes.Type(value = FieldAccessExpression.class, name = "field_access"),
+        @JsonSubTypes.Type(value = ArrayAccessExpression.class, name = "array_access"),
+        @JsonSubTypes.Type(value = TernaryExpression.class, name = "ternary"),
 })
 public abstract class Expression {
 
@@ -73,5 +79,47 @@ public abstract class Expression {
      */
     public static Expression raw(String code) {
         return new RawExpression(code);
+    }
+
+    /**
+     * 创建静态方法调用表达式
+     */
+    public static Expression staticMethod(String className, String methodName, List<Expression> args) {
+        return new StaticMethodExpression(className, methodName, args);
+    }
+
+    /**
+     * 创建new表达式
+     */
+    public static Expression newInstance(String className, List<Expression> args) {
+        return new NewExpression(className, args);
+    }
+
+    /**
+     * 创建类型转换表达式
+     */
+    public static Expression cast(String targetType, Expression expression) {
+        return new CastExpression(targetType, expression);
+    }
+
+    /**
+     * 创建字段访问表达式
+     */
+    public static Expression fieldAccess(Expression object, String field) {
+        return new FieldAccessExpression(object, field);
+    }
+
+    /**
+     * 创建数组访问表达式
+     */
+    public static Expression arrayAccess(Expression array, Expression index) {
+        return new ArrayAccessExpression(array, index);
+    }
+
+    /**
+     * 创建三元运算符表达式
+     */
+    public static Expression ternary(Expression condition, Expression thenExpr, Expression elseExpr) {
+        return new TernaryExpression(condition, thenExpr, elseExpr);
     }
 }
