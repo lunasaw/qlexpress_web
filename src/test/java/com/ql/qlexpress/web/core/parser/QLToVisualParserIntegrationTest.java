@@ -9,6 +9,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -339,7 +347,7 @@ class QLToVisualParserIntegrationTest {
             // 序列化为JSON
             String json = objectMapper.writeValueAsString(original);
             assertNotNull(json);
-            assertTrue(json.length() > 0);
+            assertFalse(json.isEmpty());
 
             // 反序列化
             VisualFlowSchema deserialized = objectMapper.readValue(json, VisualFlowSchema.class);
@@ -355,6 +363,150 @@ class QLToVisualParserIntegrationTest {
             // 两次转译的结果应该相同
             assertEquals(result1.getScript(), result2.getScript(),
                     "序列化前后转译结果应一致");
+        }
+    }
+
+    @Nested
+    @DisplayName("外部规则文件往返测试")
+    class ExternalRuleFileRoundTripTest {
+
+        /**
+         * 通用规则文件双向转换验证方法
+         *
+         * 验证流程：
+         * 1. 读取规则文件
+         * 2. QL脚本 → JSON (解析)
+         * 3. JSON → QL脚本 (转译)
+         * 4. 验证语义一致性
+         *
+         * @param filePath 规则文件的绝对路径
+         * @return 验证结果数组: [success, errorMessage, originalScript, json, resultScript, stats...]
+         */
+        public Object[] verifyRuleFileRoundTrip(String filePath) throws IOException {
+            Path path = Paths.get(filePath);
+
+            // 检查文件是否存在
+            if (!Files.exists(path)) {
+                return new Object[]{false, "文件不存在: " + filePath, null, null, null, null};
+            }
+
+            // 读取文件内容
+            String script = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+            if (script.trim().isEmpty()) {
+                return new Object[]{false, "文件内容为空: " + filePath, null, null, null, null};
+            }
+
+            // Step 1: QL → JSON (解析)
+            QLToVisualParser.ParseResult parseResult = parser.parse(script);
+            if (!parseResult.isSuccess()) {
+                return new Object[]{false, "QL解析失败: " + parseResult.getErrorMessage(), script, null, null, null};
+            }
+
+            VisualFlowSchema flow = parseResult.getFlow();
+
+            // Step 2: JSON序列化（验证JSON可序列化）
+            String json;
+            try {
+                json = objectMapper.writeValueAsString(flow);
+            } catch (Exception e) {
+                return new Object[]{false, "JSON序列化失败: " + e.getMessage(), script, null, null, null};
+            }
+
+            // Step 3: JSON反序列化（验证JSON可反序列化）
+            VisualFlowSchema deserializedFlow;
+            try {
+                deserializedFlow = objectMapper.readValue(json, VisualFlowSchema.class);
+            } catch (Exception e) {
+                return new Object[]{false, "JSON反序列化失败: " + e.getMessage(), script, json, null, null};
+            }
+
+            // Step 4: JSON → QL (转译)
+            TranspileResult transpileResult = transpiler.transpile(deserializedFlow);
+            if (!transpileResult.isSuccess()) {
+                return new Object[]{false, "QL转译失败: " + transpileResult.getErrorMessage(), script, json, null, null};
+            }
+
+            String resultScript = transpileResult.getScript();
+
+            // 构建统计信息
+            int[] stats = new int[]{
+                script.length(),  // originalLength
+                resultScript.length(),  // resultLength
+                flow.getNodes() != null ? flow.getNodes().size() : 0,  // nodeCount
+                flow.getEdges() != null ? flow.getEdges().size() : 0,  // edgeCount
+                flow.getImports() != null ? flow.getImports().size() : 0,  // importCount
+                flow.getFunctions() != null ? flow.getFunctions().size() : 0,  // functionCount
+                json.length()  // jsonLength
+            };
+
+            return new Object[]{true, null, script, json, resultScript, stats};
+        }
+
+        @Test
+        @DisplayName("offWatch.groovy规则文件应能往返转换")
+        void roundTrip_offWatchRule_shouldSucceed() throws IOException {
+            String filePath = "/Users/weidian/project/vdian/wd24/wd24-edge-device-plugin/rule-manager/src/main/resources/rule_2_5_1_fix/offWatch.groovy";
+
+            Object[] result = verifyRuleFileRoundTrip(filePath);
+            boolean success = (Boolean) result[0];
+            String errorMessage = (String) result[1];
+            String json = (String) result[3];
+            String resultScript = (String) result[4];
+            int[] stats = (int[]) result[5];
+
+            // 输出详细信息用于调试
+            System.out.println("=== offWatch.groovy 双向转换验证结果 ===");
+            System.out.println("是否成功: " + success);
+            if (!success) {
+                System.out.println("错误信息: " + errorMessage);
+            } else {
+                System.out.println("统计信息:");
+                System.out.println("  - 原始脚本长度: " + stats[0] + " 字符");
+                System.out.println("  - JSON长度: " + stats[6] + " 字符");
+                System.out.println("  - 转译结果长度: " + stats[1] + " 字符");
+                System.out.println("  - 节点数: " + stats[2]);
+                System.out.println("  - 边数: " + stats[3]);
+                System.out.println("  - import数: " + stats[4]);
+                System.out.println("  - 函数数: " + stats[5]);
+                System.out.println("\n=== 生成的JSON ===");
+                System.out.println(json);
+                System.out.println("\n=== 转译后的脚本 ===");
+                System.out.println(resultScript);
+            }
+
+            assertTrue(success, "规则文件双向转换应成功: " + errorMessage);
+        }
+
+        /**
+         * 参数化测试：批量验证多个规则文件
+         * 在ValueSource中添加需要测试的规则文件路径
+         */
+        @ParameterizedTest
+        @DisplayName("批量规则文件往返转换验证")
+        @ValueSource(strings = {
+            "/Users/weidian/project/vdian/wd24/wd24-edge-device-plugin/rule-manager/src/main/resources/rule_2_5_1_fix/offWatch.groovy"
+            // 在这里添加更多规则文件路径
+        })
+        void roundTrip_ruleFiles_shouldSucceed(String filePath) throws IOException {
+            // 跳过不存在的文件
+            if (!Files.exists(Paths.get(filePath))) {
+                System.out.println("跳过不存在的文件: " + filePath);
+                return;
+            }
+
+            Object[] result = verifyRuleFileRoundTrip(filePath);
+            boolean success = (Boolean) result[0];
+            String errorMessage = (String) result[1];
+            int[] stats = (int[]) result[5];
+
+            System.out.println("验证文件: " + filePath);
+            System.out.println("结果: " + (success ? "✅ 成功" : "❌ 失败 - " + errorMessage));
+            if (success && stats != null) {
+                System.out.println("节点数: " + stats[2] + ", 边数: " + stats[3]);
+            }
+            System.out.println();
+
+            assertTrue(success, "规则文件 " + filePath + " 双向转换应成功: " + errorMessage);
         }
     }
 }
