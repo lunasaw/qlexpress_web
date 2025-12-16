@@ -763,4 +763,250 @@ class VisualToQLTranspilerTest {
                 .type(EdgeType.DEFAULT)
                 .build();
     }
+
+    @Nested
+    @DisplayName("FOREACH循环测试")
+    class ForeachLoopTest {
+
+        @Test
+        @DisplayName("标准FOREACH循环应正确转译")
+        void transpile_standardForeach_shouldGenerateCorrectQL() {
+            // 创建循环体节点
+            VisualNode bodyExpr = createExpressionNode("body1", "sum",
+                    Expression.operator("+", Expression.variable("sum"), Expression.variable("item")));
+
+            // 创建foreach节点
+            ForeachNodeData foreachData = new ForeachNodeData();
+            foreachData.setLabel("遍历");
+            foreachData.setIteratorVariable("item");
+            foreachData.setIterable(Expression.variable("list"));
+            foreachData.setBodyBranch("body1");
+
+            VisualNode foreachNode = VisualNode.builder()
+                    .id("foreach1")
+                    .type("foreach")
+                    .data(foreachData)
+                    .build();
+
+            VisualFlowSchema schema = VisualFlowSchema.builder()
+                    .version("1.0.0")
+                    .nodes(Arrays.asList(
+                            createStartNode("start"),
+                            foreachNode,
+                            bodyExpr,
+                            createEndNode("end")
+                    ))
+                    .edges(Arrays.asList(
+                            createEdge("e1", "start", "foreach1"),
+                            createEdgeWithHandle("e2", "foreach1", "body1", "body", null),
+                            createEdgeWithHandle("e3", "foreach1", "end", "next", null)
+                    ))
+                    .build();
+
+            TranspileResult result = transpiler.transpile(schema);
+
+            assertTrue(result.isSuccess());
+            String script = result.getScript();
+            assertTrue(script.contains("for (item : list) {"));
+            assertTrue(script.contains("}"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Break和Continue测试")
+    class BreakContinueTest {
+
+        @Test
+        @DisplayName("BREAK语���应正确转译")
+        void transpile_break_shouldGenerateCorrectQL() {
+            // 创建break节点
+            BreakNodeData breakData = new BreakNodeData();
+            breakData.setLabel("中断");
+
+            VisualNode breakNode = VisualNode.builder()
+                    .id("break1")
+                    .type("break")
+                    .data(breakData)
+                    .build();
+
+            // 创建while循环包含break
+            WhileNodeData whileData = new WhileNodeData();
+            whileData.setLabel("循环");
+            whileData.setCondition(Expression.literal(true));
+            whileData.setBodyEntrance("break1");
+
+            VisualNode whileNode = VisualNode.builder()
+                    .id("while1")
+                    .type("while")
+                    .data(whileData)
+                    .build();
+
+            VisualFlowSchema schema = VisualFlowSchema.builder()
+                    .version("1.0.0")
+                    .nodes(Arrays.asList(
+                            createStartNode("start"),
+                            whileNode,
+                            breakNode,
+                            createEndNode("end")
+                    ))
+                    .edges(Arrays.asList(
+                            createEdge("e1", "start", "while1"),
+                            createEdgeWithHandle("e2", "while1", "break1", "body", null),
+                            createEdgeWithHandle("e3", "while1", "end", "next", null)
+                    ))
+                    .build();
+
+            TranspileResult result = transpiler.transpile(schema);
+
+            assertTrue(result.isSuccess());
+            String script = result.getScript();
+            assertTrue(script.contains("break;"));
+        }
+
+        @Test
+        @DisplayName("CONTINUE语句应正确转译")
+        void transpile_continue_shouldGenerateCorrectQL() {
+            // 创建continue节点
+            ContinueNodeData continueData = new ContinueNodeData();
+            continueData.setLabel("继续");
+
+            VisualNode continueNode = VisualNode.builder()
+                    .id("continue1")
+                    .type("continue")
+                    .data(continueData)
+                    .build();
+
+            // 创建for循环包含continue
+            ForNodeData forData = new ForNodeData();
+            forData.setLabel("循环");
+            forData.setInit(Expression.raw("i = 0"));
+            forData.setCondition(Expression.operator("<", Expression.variable("i"), Expression.literal(10)));
+            forData.setUpdate(Expression.raw("i = i + 1"));
+            forData.setBodyEntrance("continue1");
+
+            VisualNode forNode = VisualNode.builder()
+                    .id("for1")
+                    .type("for")
+                    .data(forData)
+                    .build();
+
+            VisualFlowSchema schema = VisualFlowSchema.builder()
+                    .version("1.0.0")
+                    .nodes(Arrays.asList(
+                            createStartNode("start"),
+                            forNode,
+                            continueNode,
+                            createEndNode("end")
+                    ))
+                    .edges(Arrays.asList(
+                            createEdge("e1", "start", "for1"),
+                            createEdgeWithHandle("e2", "for1", "continue1", "body", null),
+                            createEdgeWithHandle("e3", "for1", "end", "next", null)
+                    ))
+                    .build();
+
+            TranspileResult result = transpiler.transpile(schema);
+
+            assertTrue(result.isSuccess());
+            String script = result.getScript();
+            assertTrue(script.contains("continue;"));
+        }
+    }
+
+    @Nested
+    @DisplayName("TRY-CATCH测试")
+    class TryCatchTest {
+
+        @Test
+        @DisplayName("简单TRY-CATCH应正确转译")
+        void transpile_simpleTryCatch_shouldGenerateCorrectQL() {
+            // 创建try块中的节点
+            VisualNode tryExpr = createExpressionNode("try1", "result",
+                    Expression.operator("/", Expression.literal(10), Expression.variable("x")));
+
+            // 创建catch块中的节点
+            VisualNode catchExpr = createAssignmentNode("catch1", "result", Expression.literal(0));
+
+            // 创建try_catch节点
+            TryCatchNodeData tryCatchData = new TryCatchNodeData();
+            tryCatchData.setLabel("异常处理");
+            tryCatchData.setTryBranch("try1");
+
+            TryCatchNodeData.CatchHandler handler = new TryCatchNodeData.CatchHandler();
+            handler.setExceptionType("Exception");
+            handler.setExceptionVariable("e");
+            handler.setCatchBranch("catch1");
+            tryCatchData.setCatchHandlers(Collections.singletonList(handler));
+
+            VisualNode tryCatchNode = VisualNode.builder()
+                    .id("trycatch1")
+                    .type("try_catch")
+                    .data(tryCatchData)
+                    .build();
+
+            VisualFlowSchema schema = VisualFlowSchema.builder()
+                    .version("1.0.0")
+                    .nodes(Arrays.asList(
+                            createStartNode("start"),
+                            tryCatchNode,
+                            tryExpr,
+                            catchExpr,
+                            createEndNode("end")
+                    ))
+                    .edges(Arrays.asList(
+                            createEdge("e1", "start", "trycatch1"),
+                            createEdgeWithHandle("e2", "trycatch1", "try1", "try", null),
+                            createEdgeWithHandle("e3", "trycatch1", "catch1", "catch", null),
+                            createEdgeWithHandle("e4", "trycatch1", "end", "next", null)
+                    ))
+                    .build();
+
+            TranspileResult result = transpiler.transpile(schema);
+
+            assertTrue(result.isSuccess());
+            String script = result.getScript();
+            assertTrue(script.contains("try {"));
+            assertTrue(script.contains("} catch (Exception e) {"));
+            assertTrue(script.contains("}"));
+        }
+    }
+
+    @Nested
+    @DisplayName("THROW测试")
+    class ThrowTest {
+
+        @Test
+        @DisplayName("THROW语句应正确转译")
+        void transpile_throw_shouldGenerateCorrectQL() {
+            // 创建throw节点
+            ThrowNodeData throwData = new ThrowNodeData();
+            throwData.setLabel("抛出异常");
+            throwData.setException(Expression.raw("new Exception(\"Error occurred\")"));
+
+            VisualNode throwNode = VisualNode.builder()
+                    .id("throw1")
+                    .type("throw")
+                    .data(throwData)
+                    .build();
+
+            VisualFlowSchema schema = VisualFlowSchema.builder()
+                    .version("1.0.0")
+                    .nodes(Arrays.asList(
+                            createStartNode("start"),
+                            throwNode,
+                            createEndNode("end")
+                    ))
+                    .edges(Arrays.asList(
+                            createEdge("e1", "start", "throw1"),
+                            createEdge("e2", "throw1", "end")
+                    ))
+                    .build();
+
+            TranspileResult result = transpiler.transpile(schema);
+
+            assertTrue(result.isSuccess());
+            String script = result.getScript();
+            assertTrue(script.contains("throw new Exception(\"Error occurred\");"));
+        }
+    }
 }

@@ -16,11 +16,16 @@ import lombok.Data;
         @JsonSubTypes.Type(value = EndNodeData.class, name = "end"),
         @JsonSubTypes.Type(value = IfNodeData.class, name = "if"),
         @JsonSubTypes.Type(value = ForNodeData.class, name = "for"),
+        @JsonSubTypes.Type(value = ForeachNodeData.class, name = "foreach"),
         @JsonSubTypes.Type(value = WhileNodeData.class, name = "while"),
         @JsonSubTypes.Type(value = ExpressionNodeData.class, name = "expression"),
         @JsonSubTypes.Type(value = AssignmentNodeData.class, name = "assignment"),
         @JsonSubTypes.Type(value = FunctionCallNodeData.class, name = "function_call"),
         @JsonSubTypes.Type(value = ReturnNodeData.class, name = "return"),
+        @JsonSubTypes.Type(value = BreakNodeData.class, name = "break"),
+        @JsonSubTypes.Type(value = ContinueNodeData.class, name = "continue"),
+        @JsonSubTypes.Type(value = TryCatchNodeData.class, name = "try_catch"),
+        @JsonSubTypes.Type(value = ThrowNodeData.class, name = "throw"),
 })
 public abstract class NodeData {
     /**

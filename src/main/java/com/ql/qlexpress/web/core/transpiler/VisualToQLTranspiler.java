@@ -292,6 +292,26 @@ public class VisualToQLTranspiler {
                 generateReturnNode(node, (ReturnNodeData) data, sb, context);
                 break;
 
+            case "foreach":
+                generateForeachNode(node, (ForeachNodeData) data, graph, sb, context, visited);
+                return; // foreach节点自己处理后续节点
+
+            case "break":
+                generateBreakNode(node, sb, context);
+                break;
+
+            case "continue":
+                generateContinueNode(node, sb, context);
+                break;
+
+            case "try_catch":
+                generateTryCatchNode(node, (TryCatchNodeData) data, graph, sb, context, visited);
+                return; // try_catch节点自己处理后续节点
+
+            case "throw":
+                generateThrowNode(node, (ThrowNodeData) data, sb, context);
+                break;
+
             default:
                 context.addWarning(node.getId(), "UNKNOWN_NODE_TYPE",
                         "未知的节点类型: " + nodeType);
@@ -555,6 +575,207 @@ public class VisualToQLTranspiler {
 
         if (data != null && data.getValue() != null) {
             sb.append(" ").append(data.getValue().toQL());
+        }
+
+        sb.append(";");
+        appendNewLine(sb, context);
+    }
+
+    /**
+     * 生成FOREACH节点代码
+     */
+    private void generateForeachNode(VisualNode node, ForeachNodeData data, FlowGraph graph,
+                                     StringBuilder sb, TranspileContext context, Set<String> visited) {
+        if (data == null) {
+            context.addWarning(node.getId(), "INVALID_FOREACH", "FOREACH节点数据为空");
+            return;
+        }
+
+        int startLine = context.getCurrentLine();
+
+        // foreach 循环头
+        sb.append(context.getIndent()).append("for (");
+
+        // 迭代器变量
+        if (data.getIteratorVariable() != null && !data.getIteratorVariable().isEmpty()) {
+            sb.append(data.getIteratorVariable());
+        } else {
+            sb.append("item");
+        }
+
+        sb.append(" : ");
+
+        // 可迭代对象
+        if (data.getIterable() != null) {
+            sb.append(data.getIterable().toQL());
+        } else {
+            context.addWarning(node.getId(), "MISSING_ITERABLE", "FOREACH节点缺少可迭代对象");
+            sb.append("[]");
+        }
+
+        sb.append(") {");
+        appendNewLine(sb, context);
+
+        // 循环体
+        context.indent();
+        VisualNode bodyNode = data.getBodyBranch() != null ? graph.getNode(data.getBodyBranch()) : null;
+        if (bodyNode == null) {
+            // 尝试通过 sourceHandle 查找
+            bodyNode = graph.getSuccessorByHandle(node.getId(), "body");
+        }
+        if (bodyNode != null) {
+            Set<String> bodyVisited = new HashSet<>(visited);
+            generateNodeCode(bodyNode, graph, sb, context, bodyVisited);
+        }
+        context.dedent();
+
+        sb.append(context.getIndent()).append("}");
+        appendNewLine(sb, context);
+
+        // 记录源映射
+        int endLine = context.getCurrentLine();
+        context.addSourceMapping(node.getId(), startLine, endLine);
+
+        // 处理foreach节点的后续节点
+        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
+        if (nextNode != null && !visited.contains(nextNode.getId())) {
+            generateNodeCode(nextNode, graph, sb, context, visited);
+        }
+    }
+
+    /**
+     * 生成BREAK节点代码
+     */
+    private void generateBreakNode(VisualNode node, StringBuilder sb, TranspileContext context) {
+        sb.append(context.getIndent()).append("break;");
+        appendNewLine(sb, context);
+    }
+
+    /**
+     * 生成CONTINUE节点代码
+     */
+    private void generateContinueNode(VisualNode node, StringBuilder sb, TranspileContext context) {
+        sb.append(context.getIndent()).append("continue;");
+        appendNewLine(sb, context);
+    }
+
+    /**
+     * 生成TRY_CATCH节点代码
+     */
+    private void generateTryCatchNode(VisualNode node, TryCatchNodeData data, FlowGraph graph,
+                                      StringBuilder sb, TranspileContext context, Set<String> visited) {
+        if (data == null) {
+            context.addWarning(node.getId(), "INVALID_TRY_CATCH", "TRY_CATCH节点数据为空");
+            return;
+        }
+
+        int startLine = context.getCurrentLine();
+
+        // try 块
+        sb.append(context.getIndent()).append("try {");
+        appendNewLine(sb, context);
+
+        context.indent();
+        VisualNode tryNode = data.getTryBranch() != null ? graph.getNode(data.getTryBranch()) : null;
+        if (tryNode == null) {
+            tryNode = graph.getSuccessorByHandle(node.getId(), "try");
+        }
+        if (tryNode != null) {
+            Set<String> tryVisited = new HashSet<>(visited);
+            generateNodeCode(tryNode, graph, sb, context, tryVisited);
+        }
+        context.dedent();
+
+        // catch 块
+        if (data.getCatchHandlers() != null && !data.getCatchHandlers().isEmpty()) {
+            for (TryCatchNodeData.CatchHandler handler : data.getCatchHandlers()) {
+                sb.append(context.getIndent()).append("} catch (");
+
+                // 异常类型
+                if (handler.getExceptionType() != null && !handler.getExceptionType().isEmpty()) {
+                    sb.append(handler.getExceptionType());
+                } else {
+                    sb.append("Exception");
+                }
+
+                sb.append(" ");
+
+                // 异常变量名
+                if (handler.getExceptionVariable() != null && !handler.getExceptionVariable().isEmpty()) {
+                    sb.append(handler.getExceptionVariable());
+                } else {
+                    sb.append("e");
+                }
+
+                sb.append(") {");
+                appendNewLine(sb, context);
+
+                context.indent();
+                VisualNode catchNode = handler.getCatchBranch() != null ?
+                        graph.getNode(handler.getCatchBranch()) : null;
+                if (catchNode != null) {
+                    Set<String> catchVisited = new HashSet<>(visited);
+                    generateNodeCode(catchNode, graph, sb, context, catchVisited);
+                }
+                context.dedent();
+            }
+        } else {
+            // 默认 catch 块
+            sb.append(context.getIndent()).append("} catch (Exception e) {");
+            appendNewLine(sb, context);
+
+            context.indent();
+            VisualNode catchNode = graph.getSuccessorByHandle(node.getId(), "catch");
+            if (catchNode != null) {
+                Set<String> catchVisited = new HashSet<>(visited);
+                generateNodeCode(catchNode, graph, sb, context, catchVisited);
+            }
+            context.dedent();
+        }
+
+        // finally 块（可选）
+        VisualNode finallyNode = data.getFinallyBranch() != null ?
+                graph.getNode(data.getFinallyBranch()) : null;
+        if (finallyNode == null) {
+            finallyNode = graph.getSuccessorByHandle(node.getId(), "finally");
+        }
+
+        if (finallyNode != null) {
+            sb.append(context.getIndent()).append("} finally {");
+            appendNewLine(sb, context);
+
+            context.indent();
+            Set<String> finallyVisited = new HashSet<>(visited);
+            generateNodeCode(finallyNode, graph, sb, context, finallyVisited);
+            context.dedent();
+        }
+
+        sb.append(context.getIndent()).append("}");
+        appendNewLine(sb, context);
+
+        // 记录源映射
+        int endLine = context.getCurrentLine();
+        context.addSourceMapping(node.getId(), startLine, endLine);
+
+        // 处理try_catch节点的后续节点
+        VisualNode nextNode = graph.getSuccessorByHandle(node.getId(), "next");
+        if (nextNode != null && !visited.contains(nextNode.getId())) {
+            generateNodeCode(nextNode, graph, sb, context, visited);
+        }
+    }
+
+    /**
+     * 生成THROW节点代码
+     */
+    private void generateThrowNode(VisualNode node, ThrowNodeData data,
+                                   StringBuilder sb, TranspileContext context) {
+        sb.append(context.getIndent()).append("throw ");
+
+        if (data != null && data.getException() != null) {
+            sb.append(data.getException().toQL());
+        } else {
+            sb.append("new Exception(\"Unknown error\")");
+            context.addWarning(node.getId(), "MISSING_EXCEPTION", "THROW节点缺少异常表达式");
         }
 
         sb.append(";");
