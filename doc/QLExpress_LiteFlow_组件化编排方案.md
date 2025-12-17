@@ -86,36 +86,291 @@
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 边缘设备组件分层架构
+### 1.3 组件化分层架构设计
 
-基于实际边缘设备规则分析，组件分层如下：
+基于 QLExpress + LiteFlow 的组件化编排，采用三层架构设计：
+
+```mermaid
+graph TB
+    %% ==================== 样式定义 ====================
+    classDef flowLayer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef compLayer fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef infraLayer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
+    classDef boolType fill:#fff9c4,stroke:#f9a825,stroke-width:2px,color:#f57f17
+    classDef switchType fill:#ffccbc,stroke:#e64a19,stroke-width:2px,color:#bf360c
+    classDef scriptType fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef context fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#01579b
+
+    %% ==================== 第一层：业务流程层 ====================
+    subgraph L1["业务流程层 (Flow Layer)"]
+        direction TB
+
+        subgraph FlowDef["流程定义"]
+            FD1["Flow JSON 定义"]
+            FD2["LiteFlow EL 表达式"]
+            FD3["流程元数据"]
+        end
+
+        subgraph FlowOps["编排操作符"]
+            OP1["THEN - 顺序执行"]
+            OP2["WHEN - 并行执行"]
+            OP3["IF - 条件分支"]
+            OP4["SWITCH - 多路路由"]
+        end
+
+        subgraph FlowExec["流程执行"]
+            EX1["FlowExecutor"]
+            EX2["执行追踪"]
+            EX3["结果汇总"]
+        end
+    end
+
+    %% ==================== 第二层：业务组件层 ====================
+    subgraph L2["业务组件层 (Component Layer)"]
+        direction TB
+
+        subgraph CompTypes["组件类型"]
+            CT1["BOOLEAN 组件"]:::boolType
+            CT2["SWITCH 组件"]:::switchType
+            CT3["SCRIPT 组件"]:::scriptType
+        end
+
+        subgraph CompMeta["组件元数据"]
+            CM1["componentId - 唯一标识"]
+            CM2["inputs/outputs - 参数定义"]
+            CM3["switchBranches - 分支定义"]
+        end
+
+        subgraph CompScript["QLExpress 脚本"]
+            CS1["脚本内容"]
+            CS2["import 依赖"]
+            CS3["返回值约定"]
+        end
+    end
+
+    %% ==================== 第三层：基础设施层 ====================
+    subgraph L3["基础设施层 (Infrastructure Layer)"]
+        direction TB
+
+        subgraph InfraCore["核心基础设施"]
+            IC1["DeviceAdapter - 设备适配器"]
+            IC2["ShopConfigManager - 配置管理"]
+            IC3["CommonComponent - 组件获取"]
+        end
+
+        subgraph InfraContext["上下文管理"]
+            CTX1["FlowContext - 流程上下文"]:::context
+            CTX2["getData/setData"]
+            CTX3["线程安全 ConcurrentHashMap"]
+        end
+
+        subgraph InfraService["设备服务"]
+            SVC1["DeviceService - 设备服务接口"]
+            SVC2["onCommand() - 命令执行"]
+            SVC3["IoT 设备交互"]
+        end
+    end
+
+    %% ==================== 层间关系 ====================
+    L1 -->|"组件编排"| L2
+    L2 -->|"基础设施调用"| L3
+
+    %% ==================== 数据流 ====================
+    FlowExec -->|"调用组件"| CompTypes
+    CompScript -->|"访问上下文"| InfraContext
+    CompScript -->|"调用服务"| InfraService
+    CompScript -->|"获取配置"| InfraCore
+
+    %% ==================== 组件类型说明 ====================
+    CT1 -->|"返回 true/false"| OP3
+    CT2 -->|"返回分支标识"| OP4
+    CT3 -->|"执行业务逻辑"| OP1
+    CT3 -->|"执行业务逻辑"| OP2
+```
+
+#### 三层架构说明
+
+| 层级 | 职责 | 核心概念 |
+|------|------|---------|
+| **业务流程层** | 流程编排与执行 | Flow 定义、LiteFlow EL、编排操作符 (THEN/WHEN/IF/SWITCH) |
+| **业务组件层** | 可复用业务逻辑单元 | QLComponent、组件类型 (BOOLEAN/SWITCH/SCRIPT)、参数定义 |
+| **基础设施层** | 底层能力支撑 | FlowContext、DeviceAdapter、DeviceService、配置管理 |
+
+#### 组件类型与 LiteFlow 映射
+
+| 组件类型 | LiteFlow 节点类型 | 用途 | 返回值 |
+|---------|------------------|------|--------|
+| **BOOLEAN** | `boolean_script` | IF 条件判断 | `true` / `false` |
+| **SWITCH** | `switch_script` | 多路分支路由 | 分支标识字符串 |
+| **SCRIPT** | `script` | 执行业务逻辑 | 无返回值，通过 FlowContext 传递数据 |
+
+#### 数据流转机制
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        业务流程层                                │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │ openDoor │ │ onWatch  │ │switchPress│ │bluetooth │ ...       │
-│  │   Flow   │ │   Flow   │ │   Flow   │ │   Flow   │           │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
+│                        FlowContext (流程上下文)                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  ConcurrentHashMap<String, Object>                       │   │
+│  │                                                          │   │
+│  │  输入参数 ──────► 组件A ──────► 组件B ──────► 组件C       │   │
+│  │       │           │  ▲         │  ▲         │           │   │
+│  │       │           │  │         │  │         │           │   │
+│  │       └──setData──┘  │         └──│─────────┘           │   │
+│  │                      └──getData───┘                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
-                              ↓ 组合
-┌─────────────────────────────────────────────────────────────────┐
-│                        业务组件层                                │
-│  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐       │
-│  │ 门操作组件 │ │ 音频组件  │ │ 网络检查  │ │ 上报组件  │ ...    │
-│  │executeDoor│ │playAudio  │ │checkNet   │ │ackReport  │       │
-│  │closeDoor  │ │clearAudio │ │check4G    │ │eventAck   │       │
-│  └───────────┘ └─────────── graph TD ─────────────────────
-└────────────────────────────────────────────────────────────────┘  
-└─────────────────────────────────────────────────────────────────┘
-                              ↓ 依赖
-┌─────────────────────────────────────────────────────────────────┐
-│                        基础组件层                                │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                  │
-│  │ 设备适配器  │ │ 配置管理器 │ │ 上下文工具  │                  │
-│  │DeviceAdapter│ │ShopConfig │ │FlowContext │                  │
-│  └────────────┘ └────────────┘ └────────────┘                  │
-└─────────────────────────────────────────────────────────────────┘
+```
+
+### 1.4 与 liteflow-editor-server 集成架构
+
+参考 [liteflow-editor-server](https://gitee.com/imwangshijiang/liteflow-editor-client) 官方可视化编辑器项目，整合其核心设计：
+
+```mermaid
+graph TB
+    %% 样式定义
+    classDef frontend fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef backend fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef core fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef engine fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+
+    subgraph Frontend["前端层 (liteflow-editor-client 增强)"]
+        direction TB
+        FE1["可视化画布<br/>React Flow"]
+        FE2["组件库面板<br/>QLComponent List"]
+        FE3["属性配置面板<br/>Properties Editor"]
+        FE4["脚本编辑器<br/>Monaco Editor"]
+    end
+
+    subgraph Backend["后端层 (本项目 + liteflow-editor-server)"]
+        direction TB
+
+        subgraph BizLayer["业务服务层"]
+            B1["QLComponentService<br/>组件管理服务"]
+            B2["BizService<br/>流程链管理服务"]
+        end
+
+        subgraph CoreLayer["核心转换层 (liteflow-editor-core)"]
+            C1["ExpressGenerator<br/>双向转换引擎"]
+            C2["ParserSelector<br/>解析器选择器"]
+            C3["ExpressParser 体系<br/>条件解析器"]
+        end
+
+        subgraph ExecLayer["执行服务层"]
+            E1["LiteFlowDynamicService<br/>动态流程服务"]
+            E2["FlowContext<br/>流程上下文"]
+        end
+    end
+
+    subgraph Engine["引擎层"]
+        direction LR
+        ENG1["LiteFlow<br/>流程编排引擎"]
+        ENG2["QLExpress<br/>脚本执行引擎"]
+    end
+
+    %% 连接关系
+    Frontend -->|"CmpProperty JSON"| BizLayer
+    BizLayer -->|"组件定义"| CoreLayer
+    CoreLayer -->|"EL 表达式"| ExecLayer
+    ExecLayer --> Engine
+
+    %% 双向转换
+    C1 -.->|"JSON → EL"| C3
+    C1 -.->|"EL → JSON"| C3
+
+    %% 样式应用
+    class Frontend frontend
+    class BizLayer,CoreLayer,ExecLayer backend
+    class Engine engine
+```
+
+#### 核心集成点
+
+| 层级 | liteflow-editor-server | 本项目扩展 |
+|------|------------------------|-----------|
+| **数据模型** | `CmpProperty` (可视化树) | `QLComponent` (组件定义 + 脚本) |
+| **转换引擎** | `ExpressGenerator` (JSON ⇄ EL) | 复用，增加组件脚本加载 |
+| **解析器** | `ThenParser`, `IfParser`, `SwitchParser` 等 | 复用全部解析器 |
+| **业务服务** | `BizService` (链管理) | `QLComponentService` (组件管理) |
+| **执行服务** | 无 | `LiteFlowDynamicService` (动态执行) |
+
+#### EL 表达式双向转换流程
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ExpressGenerator 双向转换引擎                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────────────┐          ┌──────────────────────┐         │
+│  │    generateEL()      │          │   generateJsonEL()   │         │
+│  │    JSON → EL         │          │    EL → JSON         │         │
+│  └──────────┬───────────┘          └──────────┬───────────┘         │
+│             │                                  │                     │
+│             ▼                                  ▼                     │
+│  ┌──────────────────────┐          ┌──────────────────────┐         │
+│  │   builderEL()        │          │   EXPRESS_RUNNER     │         │
+│  │   递归构建EL字符串    │          │   执行EL得到Condition │         │
+│  └──────────┬───────────┘          └──────────┬───────────┘         │
+│             │                                  │                     │
+│             ▼                                  ▼                     │
+│  ┌──────────────────────────────────────────────────────────┐       │
+│  │              ParserSelector 解析器选择                    │       │
+│  │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐    │       │
+│  │  │  THEN   │  WHEN   │   IF    │ SWITCH  │  FOR    │    │       │
+│  │  │ Parser  │ Parser  │ Parser  │ Parser  │ Parser  │    │       │
+│  │  └─────────┴─────────┴─────────┴─────────┴─────────┘    │       │
+│  │  ┌─────────┬─────────┬─────────┬─────────┐              │       │
+│  │  │ WHILE   │ CATCH   │  AND/OR │   NOT   │              │       │
+│  │  │ Parser  │ Parser  │ Parser  │ Parser  │              │       │
+│  │  └─────────┴─────────┴─────────┴─────────┘              │       │
+│  └──────────────────────────────────────────────────────────┘       │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+
+转换示例:
+
+JSON (CmpProperty):                    EL 表达式:
+{                                      IF(
+  "type": "IF",                          checkWatchStatus,
+  "condition": {                         THEN(executeDoorOpen, playAudio),
+    "id": "checkWatchStatus"             handleOffWatch
+  },                          ⟺        ).id("watch_check");
+  "children": [
+    {"type": "THEN", "children": [...]},
+    {"id": "handleOffWatch"}
+  ],
+  "properties": {"id": "watch_check"}
+}
+```
+
+#### CmpProperty 与 QLComponent 关系
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        数据模型关系                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  CmpProperty (可视化节点树)              QLComponent (组件定义)       │
+│  ┌─────────────────────┐                ┌─────────────────────┐     │
+│  │ id: "checkWatch"    │ ─────引用────► │ componentId: "..."  │     │
+│  │ type: "BooleanNode" │                │ componentType: BOOL │     │
+│  │ properties: {...}   │                │ script: "return..." │     │
+│  │ children: [...]     │                │ inputs: [...]       │     │
+│  │ condition: {...}    │                │ outputs: [...]      │     │
+│  └─────────────────────┘                └─────────────────────┘     │
+│           │                                       │                  │
+│           │                                       │                  │
+│           ▼                                       ▼                  │
+│  ┌─────────────────────────────────────────────────────────┐        │
+│  │                  LiteFlow 运行时                         │        │
+│  │  ┌───────────────────┐    ┌───────────────────┐        │        │
+│  │  │ Chain (流程链)     │    │ ScriptNode (节点) │        │        │
+│  │  │ chainId: "flow1"  │───►│ nodeId: "check.." │        │        │
+│  │  │ el: "IF(...)"     │    │ script: "return"  │        │        │
+│  │  └───────────────────┘    │ type: boolean_scr │        │        │
+│  │                           └───────────────────┘        │        │
+│  └─────────────────────────────────────────────────────────┘        │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -188,7 +443,64 @@ public class QLComponent {
 }
 ```
 
-### 2.2 边缘设备组件清单
+### 2.2 可视化节点模型 (CmpProperty - 来自 liteflow-editor-server)
+
+```java
+/**
+ * 可视化组件树结构 (liteflow-editor-server 核心模型)
+ * 用于前端可视化画布与后端 EL 表达式之间的双向转换
+ */
+@Data
+public class CmpProperty {
+
+    /** 组件ID (叶子节点为组件引用，编排节点为 null) */
+    private String id;
+
+    /**
+     * 组件类型：
+     * - 编排类型: THEN, WHEN, IF, SWITCH, FOR, WHILE, CATCH, AND, OR, NOT
+     * - 节点类型: CommonNode, BooleanNode, SwitchNode (对应 QLComponent)
+     */
+    private String type;
+
+    /** 组件属性 */
+    private Properties properties;
+
+    /** 条件部分 (IF/SWITCH/FOR/WHILE 等需要) */
+    private CmpProperty condition;
+
+    /** 子节点列表 (组成树结构) */
+    private List<CmpProperty> children;
+
+    /**
+     * 属性详情
+     */
+    @Data
+    public static class Properties {
+        /** 组件标识 (用于 .id("xxx") 修饰符) */
+        private String id;
+
+        /** 组件标签 (用于 .tag("xxx") 修饰符) */
+        private String tag;
+
+        /** LiteFlow 参数 (用于 .data("xxx") 修饰符) */
+        private String data;
+    }
+}
+```
+
+### 2.3 数据模型映射关系
+
+| liteflow-editor-server | 本项目 | 说明 |
+|------------------------|--------|------|
+| `CmpProperty` | 直接复用 | 可视化编排树结构 |
+| `CmpProperty.id` | `QLComponent.componentId` | 节点引用组件 |
+| `CmpProperty.type` | 编排类型 or 组件类型 | THEN/IF 等编排，或 CommonNode 等节点 |
+| `Properties.id/tag/data` | LiteFlow 修饰符 | 生成 `.id()`, `.tag()`, `.data()` |
+| `ELInfo` | 直接复用 | EL 表达式容器 |
+| `ChainInfo` | 扩展 | 增加组件脚本信息 |
+
+### 2.4 边缘设备组件清单
 
 #### 2.2.1 基础组件 (5个)
 
@@ -1155,6 +1467,132 @@ THEN(
 ---
 
 ## 五、API 接口设计
+
+### 5.0 与 liteflow-editor-server 接口整合
+
+基于 liteflow-editor-server 的接口设计，整合本项目的组件管理能力：
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    API 接口架构 (整合设计)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │         liteflow-editor-server 原生接口 (复用)                 │   │
+│  ├──────────────────────────────────────────────────────────────┤   │
+│  │                                                               │   │
+│  │  EL 转换接口 (/api)                                           │   │
+│  │  ├─ POST /generateJsonEL    # EL表达式 → JSON (CmpProperty)  │   │
+│  │  └─ POST /generateEL        # JSON (CmpProperty) → EL表达式   │   │
+│  │                                                               │   │
+│  │  业务接口 (/api)                                              │   │
+│  │  ├─ GET  /getCmpList        # 获取所有组件列表                 │   │
+│  │  ├─ GET  /getChainList      # 获取所有流程链列表               │   │
+│  │  ├─ POST /createChain       # 创建流程链 (elJson → Chain)     │   │
+│  │  ├─ POST /updateChain       # 更新流程链                       │   │
+│  │  ├─ POST /deleteChain       # 删除流程链                       │   │
+│  │  ├─ GET  /getChainById      # 获取链详情 (含 EL + JSON)       │   │
+│  │  └─ POST /verifyELExpression # 验证 EL 表达式                 │   │
+│  │                                                               │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                              │                                       │
+│                              ▼                                       │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │         本项目扩���接口 (新增)                                   │   │
+│  ├──────────────────────────────────────────────────────────────┤   │
+│  ���                                                               │   │
+│  │  组件管理 (/api/component)                                    │   │
+│  │  ├─ POST   /                # 创建 QLExpress 组件             │   │
+│  │  ├─ GET    /{componentId}   # 获取组件详情 (含脚本)           │   │
+│  │  ├─ PUT    /{componentId}   # 更新组件                        │   │
+│  │  ├─ DELETE /{componentId}   # 删除组件                        │   │
+│  │  ├─ GET    /list            # 组件列表 (支持分类筛选)         │   │
+│  │  ├─ POST   /validate        # 验证组件脚本语法                │   │
+│  │  └─ POST   /test            # 测试组件执行                    │   │
+│  │                                                               │   │
+│  │  流程执行 (/api/liteflow)                                     │   │
+│  │  ├─ POST /dynamic/node      # 动态添加脚本节点                │   │
+│  │  ├─ PUT  /dynamic/node/{id} # 刷新脚本节点                    │   │
+│  │  ├─ POST /dynamic/chain     # 动态添加/更新流程链             │   │
+│  │  ├─ POST /dynamic/load      # 批量加载流程定义                │   │
+│  │  ├─ POST /execute/{chainId} # 执行流程链                      │   │
+│  │  └─ POST /dynamic/execute-el # 直接执行 EL 表达式             │   │
+│  │                                                               │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### liteflow-editor-server 核心请求/响应格式
+
+```java
+// ========== 请求 VO ==========
+
+// 创建/更新链请求
+@Data
+public class CreateChainVO {
+    private String chainId;         // 流程链ID
+    private CmpProperty elJson;     // 可视化 JSON 结构
+}
+
+// ========== 响应 VO ==========
+
+// 组件信息
+@Data
+public class CmpInfoVO {
+    private String cmpId;           // 组件ID
+    private String cmpName;         // 组件名称
+}
+
+// 链信息
+@Data
+public class ChainInfoVO {
+    private String chainId;         // 链ID
+    private String chainName;       // 链名称
+}
+
+// 链详情 (包含双向数据)
+@Data
+public class ChainInfo {
+    private ELInfo elInfo;          // EL 表达式形式
+    private CmpProperty elJson;     // JSON 结构形式
+}
+
+// EL 表达式容器
+@Data
+public class ELInfo {
+    private String chainId;         // 链ID
+    private String elStr;           // EL 表达式字符串
+}
+```
+
+#### 整合后的完整工作流
+
+```
+前端可视化画布操作:
+
+1. 拖拽组件到画布
+   ↓
+2. 连线形成流程
+   ↓
+3. 配置组件属性
+   ↓
+4. 保存流程
+   ├─► POST /api/generateEL          # CmpProperty → EL 表达式
+   │   └─► 返回: ELInfo { elStr: "THEN(a, IF(b, c, d), e);" }
+   │
+   ├─► POST /api/component/validate  # 验证所有组件脚本
+   │   └─► 返回: 验证结果
+   │
+   └─► POST /api/createChain         # 创建流程链
+       ├─► 内部调用 generateEL()
+       ├─► 加载组件脚本 → LiteFlow ScriptNode
+       └─► 构建 Chain
+
+5. 执���流程
+   └─► POST /api/liteflow/execute/{chainId}
+       └─► 返回: 执行结果 + 上下文数据 + 执行步骤
+```
 
 ### 5.1 组件管理接口
 

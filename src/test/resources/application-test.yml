@@ -1,0 +1,23 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: qlexpress-web-test
+
+logging:
+  level:
+    root: WARN
+    com.ql.qlexpress.web: DEBUG
+    com.yomahub.liteflow: INFO
+
+# LiteFlow 测试配置
+liteflow:
+  rule-source-ext-data-map: {}
+  print-execution-log: false
+  print-banner: false
+  script-enable: true
+  script-language: qlexpress
+  monitor:
+    enable-log: false
+    period: 300000
