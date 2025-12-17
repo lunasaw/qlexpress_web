@@ -19,6 +19,7 @@
         <spring-boot.version>2.7.18</spring-boot.version>
         <qlexpress4.version>4.0.7</qlexpress4.version>
         <luna-common.version>2.6.8</luna-common.version>
+        <liteflow.version>2.15.2</liteflow.version>
     </properties>
 
     <developers>
@@ -107,6 +108,20 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- LiteFlow 规则引擎 -->
+        <dependency>
+            <groupId>com.yomahub</groupId>
+            <artifactId>liteflow-spring-boot-starter</artifactId>
+            <version>${liteflow.version}</version>
+        </dependency>
+
+        <!-- LiteFlow QLExpress 脚本支持 -->
+        <dependency>
+            <groupId>com.yomahub</groupId>
+            <artifactId>liteflow-script-qlexpress</artifactId>
+            <version>${liteflow.version}</version>
         </dependency>
     </dependencies>
 
