@@ -1,1756 +1,765 @@
-# QLExpress + LiteFlow 组件化编排方案
+# QLExpress + LiteFlow 组件化编排通用技术方案
 
 ## 一、方案概述
 
-### 1.1 核心思路
+### 1.1 设计目标
 
-将 **QLExpress** 作为业务逻辑的实现载体（Node），**LiteFlow** 作为流程编排引擎，实现：
+构建一个**通用的组件化流程编排系统**，将 **QLExpress** 作为业务逻辑实现载体，**LiteFlow** 作为流程编排引擎，实现：
 
-- **组件库**：预定义的 QLExpress 脚本组件，每个组件是一个可复用的业务逻辑单元
-- **可视化编排**：基于 liteflow-editor-client 增强，支持从组件库拖拽组件进行流程编排
-- **智能分支**：Switch 类型组件自动生成对应数量的分支
+- **业务无关性**：框架层不包含任何业务逻辑，所有业务通过组件动态注入
+- **高度可扩展**：支持任意业务领域通过配置接入，无需修改核心代码
+- **可视化编排**：基于 liteflow-editor-client 的图形化流程设计
+- **热更新能力**：组件和流程支持运行时动态加载、更新、卸载
+- **完整的生命周期**：组件从定义、验证、测试到执行的全流程管理
 
-```
-┌──────────────────────────────────────────────────────────────��──────┐
-│                         组件设计器 (新增)                             │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  组件元数据定义                                               │    │
-│  │  - componentId: "checkWatchStatus"                           │    │
-│  │  - componentType: BOOLEAN | SCRIPT | SWITCH                  │    │
-│  │  - 输入参数: [{name: "deviceAdapter", type: "Object"}]       │    │
-│  │  - Switch分支: ["AUTH","DOOR_OPERATE","READ_STATUS"] (SWITCH) │    │
-│  │  - QLExpress 脚本编辑器                                       │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────┘
-                                    ↓ 保存为组件
-┌─────────────────────────────────────────────────────────────────────┐
-│                     组件库 (Component Library)                       │
-│  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐           │
-│  │ 值守状态   │ │ 网络检查   │ │ 开门操作   │ │蓝牙命令路由 │ + 添加   │
-│  │ BOOLEAN   │ │ BOOLEAN   │ │ SCRIPT    │ │ SWITCH:5  │           │
-│  │ out:T/F   │ │ out:T/F   │ │ in:doorNo │ │AUTH/DOOR/ │           │
-│  │           │ │           │ │ out:成功   │ │READ/NOTIFY│           │
-│  └───────────┘ └───────────┘ └───────────┘ └───────────┘           │
-└──────────────────────────────────────────────────────��──────────────┘
-                                    ↓ 拖拽组件到编排器
-┌─────────────────────────────────────────────────────────────────────┐
-│              LiteFlow 编排器 (liteflow-editor-client 增强)           │
-│                                                                     │
-│  选择 [蓝牙命令路由] 组件后，自动创建 5 个分支：                        │
-│                                                                     │
-│                           ┌─ AUTH        → [蓝牙认证]     ─┐        │
-│                           ├─ DOOR_OPERATE→ [门操作]       ─┤        │
-│  [初始化] → [蓝牙命令路由]─┼─ READ_STATUS → [读取门状态]   ─┼→ [响应] │
-│                           ├─ NOTIFY      → [通知APP]      ─┤        │
-│                           └─ UNKNOWN     → [未知处理]     ─┘        │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 1.2 技术架构
+### 1.2 核心架构
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                        前端层                                   │
-│  ┌─────────────────┐  ┌─────────────────┐                      │
-│  │  组件设计器      │  │  流程编排器      │                      │
-│  │  (新增开发)      │  │  (增强现有)      │                      │
-│  │                 │  │                 │                      │
-│  │ - 脚本编辑      │  │ - 组件拖拽      │                      │
-│  │ - 参数配置      │  │ - 流程连线      │                      │
-│  │ - 分支定义      │  │ - 智能分支      │                      │
-│  └─────────────────┘  └─────────────────┘                      │
-└────────────────────────────────────────────────────────────────┘
-                              ↓ REST API
-┌────────────────────────────────────────────────────────────────┐
-│                        后端层                                   │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────┐  │
-│  │  组件管理服务    │  │  编排转换服务    │  │  执行服务      │  │
-│  │                 │  │                 │  │                │  │
-│  │ - CRUD组件     │  │ - JSON→LiteFlow │  │ - 流程执行     │  │
-│  │ - 版本管理     │  │ - 验证逻辑      │  │ - 结果返回     │  │
-│  │ - 分类管理     │  │ - EL生成       │  │ - 日志追踪     │  │
-│  └─────────────────┘  └─────────────────┘  └────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
-                              ↓
-┌────────────────────────────────────────────────────────────────┐
-│                        引擎层                                   │
-│  ┌─────────────────────────┐  ┌─────────────────────────────┐  │
-│  │       LiteFlow          │  │        QLExpress            │  │
-│  │                         │  │                             │  │
-│  │  - 流程编排             │  │  - 脚本执行                  │  │
-│  │  - 节点调度             │  │  - 规则计算                  │  │
-│  │  - 并行/串行            │  │  - 上下文访问                │  │
-│  │  - 条件分支             │  │                             │  │
-│  └─────────────────────────┘  └─────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              应用层 (Application Layer)                      │
+│  ┌─────────────────────────────��────────────────────────────────────────┐  │
+│  │  业务领域 A        业务领域 B        业务领域 C        ...             │  │
+│  │  (IoT设备控制)    (订单处理)       (风控规则)                         │  │
+│  │       ↓               ↓               ↓                               │  │
+│  │  [组件库 A]       [组件库 B]       [组件库 C]                         │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ↓ 组件注册/流程定义
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              平台层 (Platform Layer)                         │
+│                                                                              │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐     │
+│  │   组件管理服务    │  │   流程编排服务    │  │     执行引擎服务         │     │
+│  │                  │  │                  │  │                         │     │
+│  │ • 组件 CRUD      │  │ • 流程设计       │  │ • 动态节点加载          │     │
+│  │ • 脚本验证       │  │ • EL 表达式生成  │  │ • 流程链构建            │     │
+│  │ • 组件测试       │  │ • 结构验证       │  │ • 执行追踪              │     ��
+│  │ • 版本管理       │  │ • 预览/调试      │  │ • 结果收集              │     │
+│  └─────────────────┘  └─────────────────┘  └───────��─────────────────┘     │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                         上下文管理 (Context Management)                │  │
+│  │                                                                        │  │
+│  │  FlowContext: 类型安全的数据存取 + 作用域隔离 + 线程安全              │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────���──┘
+                                      │
+                                      ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              引擎层 (Engine Layer)                           │
+│                                                                              │
+│  ┌─────────────────────────────────┐  ┌─────────────────────────────────┐  │
+│  │          LiteFlow 2.15+          │  │         QLExpress 4.0+          │  │
+│  │                                  │  │                                  │  │
+│  │  • 流程编排 (EL 表达式)          │  │  • 脚本解析与执行                │  │
+│  │  • 节点调度 (串行/并行)          │  │  • 表达式计算                    │  │
+│  │  • 条件分支 (IF/SWITCH)          │  │  • 自定义操作符/函数             │  │
+│  │  • 循环控制 (FOR/WHILE)          │  │  • 上下文变量绑定                │  │
+│  │  • 异常处理 (CATCH)              │  │  • 语法树分析                    │  │
+│  └─────────────────────────────────┘  └─────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 组件化分层架构设计
+### 1.3 设计原则
 
-基于 QLExpress + LiteFlow 的组件化编排，采用三层架构设计：
-
-```mermaid
-graph TB
-    %% ==================== 样式定义 ====================
-    classDef flowLayer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
-    classDef compLayer fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
-    classDef infraLayer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
-    classDef boolType fill:#fff9c4,stroke:#f9a825,stroke-width:2px,color:#f57f17
-    classDef switchType fill:#ffccbc,stroke:#e64a19,stroke-width:2px,color:#bf360c
-    classDef scriptType fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
-    classDef context fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#01579b
-
-    %% ==================== 第一层：业务流程层 ====================
-    subgraph L1["业务流程层 (Flow Layer)"]
-        direction TB
-
-        subgraph FlowDef["流程定义"]
-            FD1["Flow JSON 定义"]
-            FD2["LiteFlow EL 表达式"]
-            FD3["流程元数据"]
-        end
-
-        subgraph FlowOps["编排操作符"]
-            OP1["THEN - 顺序执行"]
-            OP2["WHEN - 并行执行"]
-            OP3["IF - 条件分支"]
-            OP4["SWITCH - 多路路由"]
-        end
-
-        subgraph FlowExec["流程执行"]
-            EX1["FlowExecutor"]
-            EX2["执行追踪"]
-            EX3["结果汇总"]
-        end
-    end
-
-    %% ==================== 第二层：业务组件层 ====================
-    subgraph L2["业务组件层 (Component Layer)"]
-        direction TB
-
-        subgraph CompTypes["组件类型"]
-            CT1["BOOLEAN 组件"]:::boolType
-            CT2["SWITCH 组件"]:::switchType
-            CT3["SCRIPT 组件"]:::scriptType
-        end
-
-        subgraph CompMeta["组件元数据"]
-            CM1["componentId - 唯一标识"]
-            CM2["inputs/outputs - 参数定义"]
-            CM3["switchBranches - 分支定义"]
-        end
-
-        subgraph CompScript["QLExpress 脚本"]
-            CS1["脚本内容"]
-            CS2["import 依赖"]
-            CS3["返回值约定"]
-        end
-    end
-
-    %% ==================== 第三层：基础设施层 ====================
-    subgraph L3["基础设施层 (Infrastructure Layer)"]
-        direction TB
-
-        subgraph InfraCore["核心基础设施"]
-            IC1["DeviceAdapter - 设备适配器"]
-            IC2["ShopConfigManager - 配置管理"]
-            IC3["CommonComponent - 组件获取"]
-        end
-
-        subgraph InfraContext["上下文管理"]
-            CTX1["FlowContext - 流程上下文"]:::context
-            CTX2["getData/setData"]
-            CTX3["线程安全 ConcurrentHashMap"]
-        end
-
-        subgraph InfraService["设备服务"]
-            SVC1["DeviceService - 设备服务接口"]
-            SVC2["onCommand() - 命令执行"]
-            SVC3["IoT 设备交互"]
-        end
-    end
-
-    %% ==================== 层间关系 ====================
-    L1 -->|"组件编排"| L2
-    L2 -->|"基础设施调用"| L3
-
-    %% ==================== 数据流 ====================
-    FlowExec -->|"调用组件"| CompTypes
-    CompScript -->|"访问上下文"| InfraContext
-    CompScript -->|"调用服务"| InfraService
-    CompScript -->|"获取配置"| InfraCore
-
-    %% ==================== 组件类型说明 ====================
-    CT1 -->|"返回 true/false"| OP3
-    CT2 -->|"返回分支标识"| OP4
-    CT3 -->|"执行业务逻辑"| OP1
-    CT3 -->|"执行业务逻辑"| OP2
-```
-
-#### 三层架构说明
-
-| 层级 | 职责 | 核心概念 |
+| 原则 | 描述 | 实现方式 |
 |------|------|---------|
-| **业务流程层** | 流程编排与执行 | Flow 定义、LiteFlow EL、编排操作符 (THEN/WHEN/IF/SWITCH) |
-| **业务组件层** | 可复用业务逻辑单元 | QLComponent、组件类型 (BOOLEAN/SWITCH/SCRIPT)、参数定义 |
-| **基础设施层** | 底层能力支撑 | FlowContext、DeviceAdapter、DeviceService、配置管理 |
-
-#### 组件类型与 LiteFlow 映射
-
-| 组件类型 | LiteFlow 节点类型 | 用途 | 返回值 |
-|---------|------------------|------|--------|
-| **BOOLEAN** | `boolean_script` | IF 条件判断 | `true` / `false` |
-| **SWITCH** | `switch_script` | 多路分支路由 | 分支标识字符串 |
-| **SCRIPT** | `script` | 执行业务逻辑 | 无返回值，通过 FlowContext 传递数据 |
-
-#### 数据流转机制
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        FlowContext (流程上下文)                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  ConcurrentHashMap<String, Object>                       │   │
-│  │                                                          │   │
-│  │  输入参数 ──────► 组件A ──────► 组件B ──────► 组件C       │   │
-│  │       │           │  ▲         │  ▲         │           │   │
-│  │       │           │  │         │  │         │           │   │
-│  │       └──setData──┘  │         └──│─────────┘           │   │
-│  │                      └──getData───┘                      │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 1.4 与 liteflow-editor-server 集成架构
-
-参考 [liteflow-editor-server](https://gitee.com/imwangshijiang/liteflow-editor-client) 官方可视化编辑器项目，整合其核心设计：
-
-```mermaid
-graph TB
-    %% 样式定义
-    classDef frontend fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    classDef backend fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    classDef core fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef engine fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-
-    subgraph Frontend["前端层 (liteflow-editor-client 增强)"]
-        direction TB
-        FE1["可视化画布<br/>React Flow"]
-        FE2["组件库面板<br/>QLComponent List"]
-        FE3["属性配置面板<br/>Properties Editor"]
-        FE4["脚本编辑器<br/>Monaco Editor"]
-    end
-
-    subgraph Backend["后端层 (本项目 + liteflow-editor-server)"]
-        direction TB
-
-        subgraph BizLayer["业务服务层"]
-            B1["QLComponentService<br/>组件管理服务"]
-            B2["BizService<br/>流程链管理服务"]
-        end
-
-        subgraph CoreLayer["核心转换层 (liteflow-editor-core)"]
-            C1["ExpressGenerator<br/>双向转换引擎"]
-            C2["ParserSelector<br/>解析器选择器"]
-            C3["ExpressParser 体系<br/>条件解析器"]
-        end
-
-        subgraph ExecLayer["执行服务层"]
-            E1["LiteFlowDynamicService<br/>动态流程服务"]
-            E2["FlowContext<br/>流程上下文"]
-        end
-    end
-
-    subgraph Engine["引擎层"]
-        direction LR
-        ENG1["LiteFlow<br/>流程编排引擎"]
-        ENG2["QLExpress<br/>脚本执行引擎"]
-    end
-
-    %% 连接关系
-    Frontend -->|"CmpProperty JSON"| BizLayer
-    BizLayer -->|"组件定义"| CoreLayer
-    CoreLayer -->|"EL 表达式"| ExecLayer
-    ExecLayer --> Engine
-
-    %% 双向转换
-    C1 -.->|"JSON → EL"| C3
-    C1 -.->|"EL → JSON"| C3
-
-    %% 样式应用
-    class Frontend frontend
-    class BizLayer,CoreLayer,ExecLayer backend
-    class Engine engine
-```
-
-#### 核心集成点
-
-| 层级 | liteflow-editor-server | 本项目扩展 |
-|------|------------------------|-----------|
-| **数据模型** | `CmpProperty` (可视化树) | `QLComponent` (组件定义 + 脚本) |
-| **转换引擎** | `ExpressGenerator` (JSON ⇄ EL) | 复用，增加组件脚本加载 |
-| **解析器** | `ThenParser`, `IfParser`, `SwitchParser` 等 | 复用全部解析器 |
-| **业务服务** | `BizService` (链管理) | `QLComponentService` (组件管理) |
-| **执行服务** | 无 | `LiteFlowDynamicService` (动态执行) |
-
-#### EL 表达式双向转换流程
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    ExpressGenerator 双向转换引擎                      │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────────────┐          ┌──────────────────────┐         │
-│  │    generateEL()      │          │   generateJsonEL()   │         │
-│  │    JSON → EL         │          │    EL → JSON         │         │
-│  └──────────┬───────────┘          └──────────┬───────────┘         │
-│             │                                  │                     │
-│             ▼                                  ▼                     │
-│  ┌──────────────────────┐          ┌──────────────────────┐         │
-│  │   builderEL()        │          │   EXPRESS_RUNNER     │         │
-│  │   递归构建EL字符串    │          │   执行EL得到Condition │         │
-│  └──────────┬───────────┘          └──────────┬───────────┘         │
-│             │                                  │                     │
-│             ▼                                  ▼                     │
-│  ┌──────────────────────────────────────────────────────────┐       │
-│  │              ParserSelector 解析器选择                    │       │
-│  │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐    │       │
-│  │  │  THEN   │  WHEN   │   IF    │ SWITCH  │  FOR    │    │       │
-│  │  │ Parser  │ Parser  │ Parser  │ Parser  │ Parser  │    │       │
-│  │  └─────────┴─────────┴─────────┴─────────┴─────────┘    │       │
-│  │  ┌─────────┬─────────┬─────────┬─────────┐              │       │
-│  │  │ WHILE   │ CATCH   │  AND/OR │   NOT   │              │       │
-│  │  │ Parser  │ Parser  │ Parser  │ Parser  │              │       │
-│  │  └─────────┴─────────┴─────────┴─────────┘              │       │
-│  └──────────────────────────────────────────────────────────┘       │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-
-转换示例:
-
-JSON (CmpProperty):                    EL 表达式:
-{                                      IF(
-  "type": "IF",                          checkWatchStatus,
-  "condition": {                         THEN(executeDoorOpen, playAudio),
-    "id": "checkWatchStatus"             handleOffWatch
-  },                          ⟺        ).id("watch_check");
-  "children": [
-    {"type": "THEN", "children": [...]},
-    {"id": "handleOffWatch"}
-  ],
-  "properties": {"id": "watch_check"}
-}
-```
-
-#### CmpProperty 与 QLComponent 关系
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        数据模型关系                                   │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  CmpProperty (可视化节点树)              QLComponent (组件定义)       │
-│  ┌─────────────────────┐                ┌─────────────────────┐     │
-│  │ id: "checkWatch"    │ ─────引用────► │ componentId: "..."  │     │
-│  │ type: "BooleanNode" │                │ componentType: BOOL │     │
-│  │ properties: {...}   │                │ script: "return..." │     │
-│  │ children: [...]     │                │ inputs: [...]       │     │
-│  │ condition: {...}    │                │ outputs: [...]      │     │
-│  └─────────────────────┘                └─────────────────────┘     │
-│           │                                       │                  │
-│           │                                       │                  │
-│           ▼                                       ▼                  │
-│  ┌─────────────────────────────────────────────────────────┐        │
-│  │                  LiteFlow 运行时                         │        │
-│  │  ┌───────────────────┐    ┌───────────────────┐        │        │
-│  │  │ Chain (流程链)     │    │ ScriptNode (节点) │        │        │
-│  │  │ chainId: "flow1"  │───►│ nodeId: "check.." │        │        │
-│  │  │ el: "IF(...)"     │    │ script: "return"  │        │        │
-│  │  └───────────────────┘    │ type: boolean_scr │        │        │
-│  │                           └───────────────────┘        │        │
-│  └─────────────────────────────────────────────────────────┘        │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
+| **业务无关** | 核心框架不包含业务逻辑 | 所有业务通过 QLComponent 动态注入 |
+| **开闭原则** | 对扩展开放，对修改关闭 | 通过组件注册机制扩展，不修改框架代码 |
+| **单一职责** | 组件职责单一明确 | 每个组件完成一个原子操作 |
+| **依赖倒置** | 高层不依赖低层实现 | 通过 FlowContext 抽象解耦 |
+| **接口隔离** | 组件间通过上下文通信 | getData/setData 标准接口 |
 
 ---
 
-## 二、数据模型设计
+## 二、核心数据模型
 
 ### 2.1 组件定义模型 (QLComponent)
 
+> 复用现有实现：`com.ql.qlexpress.web.liteflow.model.QLComponent`
+
 ```java
 /**
- * QLExpress 组件定义
+ * QLExpress 组件定义 - 通用模型
+ *
+ * 设计要点：
+ * 1. componentId 全局唯一，作为 LiteFlow nodeId
+ * 2. componentType 决定组件行为和返回值约束
+ * 3. script 为纯粹的业务逻辑，通过 flowContext 访问上下文
+ * 4. inputs/outputs 定义组件契约，用于验证和文档
  */
+@Data
+@Builder
 public class QLComponent {
 
-    // ========== 基础信息 ==========
-    /** 组件唯一标识 (对应 LiteFlow nodeId) */
+    // ========== 标识信息 ==========
+    /** 组件唯一标识 (全局唯一，对应 LiteFlow nodeId) */
+    @NotBlank
     private String componentId;
 
-    /** 组件名称 (显示用) */
+    /** 组件名称 (人类可读) */
+    @NotBlank
     private String componentName;
 
     /** 组件描述 */
     private String description;
 
-    /** 组件分类 (如: 基础、状态检查、门操作、音频、通信) */
+    /** 组件分类 (用于组织和检索) */
     private String category;
 
-    /** 组件图标 */
+    /** 组件图标 (前端显示) */
     private String icon;
 
-    /** 组件版本 */
-    private String version;
-
-    /** 是否启用 */
-    private boolean enabled;
-
-    // ========== 类型定义 ==========
+    // ========== 类型与行为 ==========
     /**
-     * 组件类型：
-     * - SCRIPT: 普通脚本节点，执行逻辑，可修改上下文
-     * - BOOLEAN: 条件判断节点，返回 true/false，用于 IF 分支
-     * - SWITCH: 路由选择节点，返回分支标识，用于 SWITCH 多路分支
+     * 组件类型 - 决定执行行为和返回值约束
      */
+    @NotNull
     private ComponentType componentType;
 
     /** 脚本语言 (默认 qlexpress) */
+    @Builder.Default
     private String language = "qlexpress";
 
     // ========== 脚本内容 ==========
-    /** QLExpress 脚本 */
+    /** QLExpress 脚本 - 实际业务逻辑 */
+    @NotBlank
     private String script;
 
-    // ========== 参数定义 ==========
-    /** 输入参数列表 */
-    private List<ParameterDef> inputs;
+    // ========== 参数契约 ==========
+    /** 输入参数定义 - 组件期望从上下文获取的数据 */
+    @Valid
+    private List<ParameterDefinition> inputs;
 
-    /** 输出参数列表 (SCRIPT类型) */
-    private List<ParameterDef> outputs;
+    /** 输出参数定义 - 组件会设置到上下文的数据 */
+    @Valid
+    private List<ParameterDefinition> outputs;
 
-    // ========== Switch 分支定义 (仅 SWITCH 类型) ==========
-    /** 分支列表 */
+    /** Switch 分支定义 (仅 SWITCH 类型) */
     private List<SwitchBranch> switchBranches;
 
-    /** 默认分支 */
+    /** 默认分支 (SWITCH 类型) */
     private String defaultBranch;
 
-    // ========== 扩展 ==========
-    /** 元数据 */
+    // ========== 版本与状态 ==========
+    @Builder.Default
+    private String version = "1.0.0";
+
+    @Builder.Default
+    private boolean enabled = true;
+
+    /** 扩展元数据 */
+    private Map<String, Object> metadata;
+
+    /**
+     * 组件类型枚举 - 对应 LiteFlow 节点类型
+     */
+    public enum ComponentType {
+        /** 普通脚本 - 执行逻辑，无返回值要求，通过上下文传递数据 */
+        SCRIPT("script"),
+
+        /** 布尔判断 - 必须返回 true/false，用于 IF 条件 */
+        BOOLEAN("boolean_script"),
+
+        /** 路由选择 - 返回分支标识字符串，用于 SWITCH 多路分支 */
+        SWITCH("switch_script");
+
+        private final String liteFlowNodeType;
+        // ...
+    }
+}
+```
+
+### 2.2 参数定义模型
+
+```java
+/**
+ * 参数定义 - 描述组件的输入输出契约
+ */
+@Data
+@Builder
+public static class ParameterDefinition {
+    /** 参数名称 (对应 flowContext 中的 key) */
+    @NotBlank
+    private String name;
+
+    /** 参数类型 (Java 类型，如 String, Integer, List<String>) */
+    @NotBlank
+    private String type;
+
+    /** 参数描述 */
+    private String description;
+
+    /** 是否必填 */
+    @Builder.Default
+    private boolean required = true;
+
+    /** 默认值 */
+    private Object defaultValue;
+
+    /** 验证规则 (如 "min:0", "max:100", "pattern:^[a-z]+$") */
+    private String validation;
+}
+
+/**
+ * Switch 分支定义
+ */
+@Data
+@Builder
+public static class SwitchBranch {
+    /** 分支标识 (脚本返回值匹配) */
+    @NotBlank
+    private String branchId;
+
+    /** 分支名称 (人类可读) */
+    @NotBlank
+    private String branchName;
+
+    /** 分支描述 */
+    private String description;
+
+    /** 分支样式 (前端可选) */
+    private String style;
+}
+```
+
+### 2.3 可视化编排模型 (CmpProperty)
+
+> 复用现有实现：`com.ql.qlexpress.web.liteflow.model.CmpProperty`
+
+```java
+/**
+ * 可视化组件树结构 - 用于前端画布与后端 EL 表达式双向转换
+ *
+ * 设计要点：
+ * 1. 树形结构表示编排关系
+ * 2. type 区分编排类型(THEN/WHEN/IF等)和节点类型(组件引用)
+ * 3. componentRef 引用 QLComponent.componentId
+ * 4. properties 支持 LiteFlow 修饰符配置
+ */
+@Data
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class CmpProperty {
+
+    /** 节点 ID */
+    private String id;
+
+    /**
+     * 节点类型：
+     * - 编排类型: THEN, WHEN, IF, SWITCH, FOR, WHILE, CATCH, AND, OR, NOT
+     * - 节点类型: CommonNode, BooleanNode, SwitchNode, COMPONENT
+     */
+    private String type;
+
+    /** 组件引用 (叶子节点引用 QLComponent.componentId) */
+    private String componentRef;
+
+    /** 属性配置 */
+    private Properties properties;
+
+    /** 条件节点 (IF/SWITCH/FOR/WHILE 使用) */
+    private CmpProperty condition;
+
+    /** 子节点列表 */
+    private List<CmpProperty> children;
+
+    /**
+     * 属性详情 - 映射 LiteFlow 修饰符
+     */
+    @Data
+    @Builder
+    public static class Properties {
+        /** .id("xxx") - 节点标识 */
+        private String id;
+
+        /** .tag("xxx") - 节点标签 */
+        private String tag;
+
+        /** .data("xxx") - 节点数据 */
+        private String data;
+
+        /** SWITCH 分支标识 */
+        private String branch;
+
+        /** WHEN 最大等待时间 */
+        private Integer maxWaitSeconds;
+
+        /** 是否忽略错误 */
+        private Boolean ignoreError;
+
+        /** WHEN 是否必须成功 */
+        private Boolean must;
+
+        /** FOR 循环次数 */
+        private Integer loopCount;
+
+        /** BREAK 条件 */
+        private CmpProperty breakCondition;
+    }
+
+    /**
+     * 编排类型枚举
+     */
+    public enum CmpType {
+        // 编排类型
+        THEN, WHEN, IF, SWITCH, FOR, WHILE, CATCH, AND, OR, NOT,
+        // 节点类型
+        CommonNode, BooleanNode, SwitchNode, BREAK, COMPONENT
+    }
+}
+```
+
+### 2.4 流程设计模型 (FlowDesign)
+
+```java
+/**
+ * 流程设计 - 完整的流程定义
+ */
+@Data
+@Builder
+public class FlowDesign {
+    /** 流程唯一标识 */
+    @NotBlank
+    private String flowId;
+
+    /** 流程名称 */
+    @NotBlank
+    private String flowName;
+
+    /** 流程描述 */
+    private String description;
+
+    /** 流程分类 */
+    private String category;
+
+    /** 编排定义 (根节点) */
+    @NotNull
+    private CmpProperty root;
+
+    /** 流程版本 */
+    @Builder.Default
+    private String version = "1.0.0";
+
+    /** 流程标签 */
+    private List<String> tags;
+
+    /** 是否启用 */
+    @Builder.Default
+    private boolean enabled = true;
+
+    /** 扩展元数据 */
     private Map<String, Object> metadata;
 }
 ```
 
-### 2.2 可视化节点模型 (CmpProperty - 来自 liteflow-editor-server)
+---
+
+## 三、核心服务设计
+
+### 3.1 组件管理服务 (QLComponentService)
+
+> 复用现有实现：`com.ql.qlexpress.web.liteflow.service.QLComponentService`
 
 ```java
 /**
- * 可视化组件树结构 (liteflow-editor-server 核心模型)
- * 用于前端可视化画布与后端 EL 表达式之间的双向转换
+ * 组件管理服务 - 提供组件全生命周期管理
  */
-@Data
-public class CmpProperty {
+@Service
+@RequiredArgsConstructor
+public class QLComponentService {
 
-    /** 组件ID (叶子节点为组件引用，编排节点为 null) */
-    private String id;
+    private final QLComponentRepository componentRepository;
+    private final LiteFlowDynamicService liteFlowDynamicService;
+    private final Express4Runner expressRunner;
 
-    /**
-     * 组件类型：
-     * - 编排类型: THEN, WHEN, IF, SWITCH, FOR, WHILE, CATCH, AND, OR, NOT
-     * - 节点类型: CommonNode, BooleanNode, SwitchNode (对应 QLComponent)
-     */
-    private String type;
-
-    /** 组件属性 */
-    private Properties properties;
-
-    /** 条件部分 (IF/SWITCH/FOR/WHILE 等需要) */
-    private CmpProperty condition;
-
-    /** 子节点列表 (组成树结构) */
-    private List<CmpProperty> children;
+    // ==================== 组件 CRUD ====================
 
     /**
-     * 属性详情
+     * 创建组件
+     * 1. 检查 ID 唯一性
+     * 2. 验证脚本语法
+     * 3. 保存组件
+     * 4. 同步到 LiteFlow
      */
-    @Data
-    public static class Properties {
-        /** 组件标识 (用于 .id("xxx") 修饰符) */
-        private String id;
+    public QLComponent createComponent(QLComponent component);
 
-        /** 组件标签 (用于 .tag("xxx") 修饰符) */
-        private String tag;
+    /**
+     * 更新组件
+     * 1. 验证脚本语法
+     * 2. 保存更新
+     * 3. 刷新 LiteFlow 节点
+     */
+    public QLComponent updateComponent(String componentId, QLComponent component);
 
-        /** LiteFlow 参数 (用于 .data("xxx") 修饰符) */
-        private String data;
-    }
+    public QLComponent getComponent(String componentId);
+    public void deleteComponent(String componentId);
+    public List<QLComponent> listComponents(String category, ComponentType type, Boolean enabled);
+    public List<QLComponent> searchComponents(String keyword);
+
+    // ==================== 脚本验证 ====================
+
+    /**
+     * 验证组件脚本
+     * 1. 语法检查 (QLExpress 解析)
+     * 2. 类型约束检查 (BOOLEAN 必须有 return，SWITCH 必须定义分支等)
+     */
+    public ScriptValidationResult validateScript(QLComponent component);
+
+    /**
+     * 单独验证脚本语法
+     */
+    public ScriptValidationResult validateScriptOnly(String script, String language);
+
+    // ==================== 组件测试 ====================
+
+    /**
+     * 测试组件执行
+     * 1. 验证脚本
+     * 2. 准备测试上下文 (模拟 flowContext)
+     * 3. 执行脚本
+     * 4. 返回执行结果和上下文变化
+     */
+    public ComponentTestResult testComponent(String componentId, Map<String, Object> testParams);
+    public ComponentTestResult testComponentExecution(QLComponent component, Map<String, Object> testParams);
+
+    // ==================== LiteFlow 同步 ====================
+
+    public void syncToLiteFlow(QLComponent component);
+    public int syncAllToLiteFlow();
 }
 ```
 
-### 2.3 数据模型映射关系
+### 3.2 流程转换服务 (FlowConvertService)
 
-| liteflow-editor-server | 本项目 | 说明 |
-|------------------------|--------|------|
-| `CmpProperty` | 直接复用 | 可视化编排树结构 |
-| `CmpProperty.id` | `QLComponent.componentId` | 节点引用组件 |
-| `CmpProperty.type` | 编排类型 or 组件类型 | THEN/IF 等编排，或 CommonNode 等节点 |
-| `Properties.id/tag/data` | LiteFlow 修饰符 | 生成 `.id()`, `.tag()`, `.data()` |
-| `ELInfo` | 直接复用 | EL 表达式容器 |
-| `ChainInfo` | 扩展 | 增加组件脚本信息 |
+> 复用现有实现：`com.ql.qlexpress.web.liteflow.service.FlowConvertService`
 
-### 2.4 边缘设备组件清单
+```java
+/**
+ * 流程转换服务 - CmpProperty <-> LiteFlow EL 双向转换
+ */
+@Service
+@RequiredArgsConstructor
+public class FlowConvertService {
 
-#### 2.2.1 基础组件 (5个)
+    private final QLComponentRepository componentRepository;
 
-| 组件ID | 类型 | 描述 |
-|--------|------|------|
-| initDeviceAdapter | SCRIPT | 初始化设备适配器 |
-| getDoorService | SCRIPT | 获取门服务 |
-| getHornService | SCRIPT | 获取音箱服务 |
-| getSwitchService | SCRIPT | 获取开关服务 |
-| getScreenService | SCRIPT | 获取大屏服务 |
+    /**
+     * 完整转换：FlowDesign -> ConvertResult
+     * 1. 收集所有使用的组件 ID
+     * 2. 加载组件定义，生成节点列表
+     * 3. 递归生成 EL 表达式
+     */
+    public ConvertResult convert(FlowDesign flowDesign);
 
-#### 2.2.2 状态检查组件 (8个)
+    /**
+     * 仅生成 EL 表达式
+     */
+    public String generateELOnly(CmpProperty root);
 
-| 组件ID | 类型 | 描述 |
-|--------|------|------|
-| checkWatchStatus | BOOLEAN | 检查值守状态 |
-| checkNetworkStatus | BOOLEAN | 检查网络状态 |
-| check4GMode | BOOLEAN | 检查4G模式 |
-| checkEmergencyMode | BOOLEAN | 检查应急模式 |
-| checkForceLock | BOOLEAN | 检查强锁状态 |
-| checkDoorStatus | BOOLEAN | 检查门状态 |
-| checkCallingStatus | BOOLEAN | 检查通话状态 |
-| checkBatteryMode | BOOLEAN | 检查电池模式 |
+    /**
+     * 验证流程定义
+     * 1. 基础结构验证
+     * 2. 组件存在性验证
+     * 3. EL 语法验证
+     */
+    public ValidationResult validate(FlowDesign flowDesign);
 
-#### 2.2.3 路由组件 (5个)
+    // ==================== EL 生成 (内部方法) ====================
 
-| 组件ID | 类型 | 分支数 | 描述 |
-|--------|------|--------|------|
-| bluetoothCommandRouter | SWITCH | 5 | 蓝牙命令路由 |
-| openWayRouter | SWITCH | 7 | 开门方式路由 |
-| doorNoRouter | SWITCH | 3 | 门编号路由 |
-| networkTypeRouter | SWITCH | 3 | 网络类型路由 |
-| doorTypeRouter | SWITCH | 3 | 门类型路由 |
-
-#### 2.2.4 业务操作组件 (20个)
-
-| 组件ID | 类型 | 描述 |
-|--------|------|------|
-| executeDoorOpen | SCRIPT | 执行开门 |
-| executeDoorClose | SCRIPT | 执行关门 |
-| createAutoLock | SCRIPT | 创建自动落锁 |
-| playAudio | SCRIPT | 播放语音 |
-| clearAudio | SCRIPT | 清空音频队列 |
-| ackReport | SCRIPT | 云端上报 |
-| eventAck | SCRIPT | 事件回包 |
-| setGlobalValue | SCRIPT | 设置全局变量 |
-| resetGlobalStatus | SCRIPT | 重置全局状态 |
-| callCustomerService | SCRIPT | 呼叫客服 |
-| enterTalkRoom | SCRIPT | 进入语音房间 |
-| exitTalkRoom | SCRIPT | 退出语音房间 |
-| showScreenPic | SCRIPT | 显示大屏图片 |
-| hideScreenPic | SCRIPT | 隐藏大屏图片 |
-| updateWatchStatus | SCRIPT | 更新值守状态 |
-| decryptBleCommand | SCRIPT | 解密蓝牙命令 |
-| authBluetooth | SCRIPT | 蓝牙认证 |
-| sendBleNotify | SCRIPT | 发送蓝牙通知 |
-| reportOpenDoor | SCRIPT | 上报开门记录 |
-| getVoiceFileName | SCRIPT | 获取语音文件名 |
-
----
-
-## 三、核心组件定义示例
-
-### 3.1 基础组件
-
-```json
-// 组件: 初始化设备适配器
-{
-  "componentId": "initDeviceAdapter",
-  "componentName": "初始化设备适配器",
-  "category": "基础",
-  "componentType": "SCRIPT",
-  "description": "获取设备适配器实例并存入上下文",
-  "script": "
-    import com.weidian.app24h.iot.plugin.common.engine.common.CommonComponent;
-    import com.weidian.app24h.iot.plugin.common.service.edge.DeviceAdapter;
-
-    deviceAdapter = (DeviceAdapter) CommonComponent.getComponent(DeviceAdapter.class);
-    flowContext.setData('deviceAdapter', deviceAdapter);
-    LogUtils.infoRule('设备适配器初始化完成');
-  ",
-  "outputs": [
-    { "name": "deviceAdapter", "type": "DeviceAdapter", "description": "设备适配器实例" }
-  ]
-}
-
-// 组件: 获取门服务
-{
-  "componentId": "getDoorService",
-  "componentName": "获取门服务",
-  "category": "基础",
-  "componentType": "SCRIPT",
-  "description": "根据门编号获取对应的门服务实例",
-  "script": "
-    deviceAdapter = flowContext.getData('deviceAdapter');
-    doorNo = flowContext.getInt('doorNo', 1);
-    doorService = deviceAdapter.getDoorByNo(doorNo);
-    flowContext.setData('doorService', doorService);
-    flowContext.setData('hasDoor', doorService != null);
-    LogUtils.infoRule('获取门服务: doorNo=' + doorNo + ', hasDoor=' + (doorService != null));
-  ",
-  "inputs": [
-    { "name": "doorNo", "type": "Integer", "description": "门编号", "required": false, "defaultValue": 1 }
-  ],
-  "outputs": [
-    { "name": "doorService", "type": "DeviceService", "description": "门服务实例" },
-    { "name": "hasDoor", "type": "Boolean", "description": "是否存在该门" }
-  ]
-}
-
-// 组件: 获取音箱服务
-{
-  "componentId": "getHornService",
-  "componentName": "获取音箱服务",
-  "category": "基础",
-  "componentType": "SCRIPT",
-  "description": "获取室内音箱服务实例",
-  "script": "
-    deviceAdapter = flowContext.getData('deviceAdapter');
-    innerHorn = deviceAdapter.getInnerHorn();
-    flowContext.setData('innerHornService', innerHorn);
-    flowContext.setData('hasInnerHorn', innerHorn != null);
-    LogUtils.infoRule('获取室内音箱: hasInnerHorn=' + (innerHorn != null));
-  ",
-  "outputs": [
-    { "name": "innerHornService", "type": "DeviceService", "description": "室内音箱服务" },
-    { "name": "hasInnerHorn", "type": "Boolean", "description": "是否存在室内音箱" }
-  ]
+    /**
+     * 递归生成 EL 表达式
+     *
+     * 支持的编排类型：
+     * - THEN: 顺序执行 -> THEN(a, b, c)
+     * - WHEN: 并行执行 -> WHEN(a, b, c).maxWaitSeconds(10)
+     * - IF: 条件分支 -> IF(cond, trueNode, falseNode)
+     * - SWITCH: 多路分支 -> SWITCH(cond).to(a, b, c).id('A', 'B', 'C')
+     * - FOR: 循环 -> FOR(count).DO(body).BREAK(cond)
+     * - WHILE: 条件循环 -> WHILE(cond).DO(body)
+     * - CATCH: 异常处理 -> CATCH(tryBody).DO(catchBody)
+     * - AND/OR/NOT: 逻辑操作
+     */
+    private String generateEL(CmpProperty node);
 }
 ```
 
-### 3.2 状态检查组件 (BOOLEAN)
+### 3.3 动态执行服务 (LiteFlowDynamicService)
 
-```json
-// 组件: 检查值守状态
-{
-  "componentId": "checkWatchStatus",
-  "componentName": "检查值守状态",
-  "category": "状态检查",
-  "componentType": "BOOLEAN",
-  "description": "检查当前是否处于值守状态",
-  "script": "
-    import com.weidian.app24h.iot.plugin.api.enums.GlobalContextKeyEnum;
-    import com.weidian.app24h.iot.plugin.common.service.edge.ShopConfigManager;
-    import com.weidian.app24h.iot.plugin.common.engine.common.CommonComponent;
+> 复用现有实现：`com.ql.qlexpress.web.liteflow.service.LiteFlowDynamicService`
 
-    shopConfigManager = (ShopConfigManager) CommonComponent.getComponent(ShopConfigManager.class);
-    startWatch = (Boolean) shopConfigManager.getGlobalValue(GlobalContextKeyEnum.START_WATCH.getCode());
-    flowContext.setData('startWatch', startWatch);
-    LogUtils.infoRule('值守状态检查: startWatch=' + startWatch);
-    return startWatch != null && startWatch;
-  ",
-  "outputs": [
-    { "name": "startWatch", "type": "Boolean", "description": "值守状态" }
-  ]
-}
+```java
+/**
+ * LiteFlow 动态执行服务 - 支持运行时动态加载和执行
+ */
+@Service
+@RequiredArgsConstructor
+public class LiteFlowDynamicService {
 
-// 组件: 检查网络状态
-{
-  "componentId": "checkNetworkStatus",
-  "componentName": "检查网络状态",
-  "category": "状态检查",
-  "componentType": "BOOLEAN",
-  "description": "检查网络是否可用",
-  "script": "
-    import com.weidian.app24h.iot.plugin.api.service.INetworkUtils;
-    import com.weidian.app24h.iot.plugin.common.engine.common.CommonComponent;
-    import java.util.concurrent.TimeUnit;
+    private final FlowExecutor flowExecutor;
+    private final ScriptExecutor scriptExecutor;
 
-    networkUtils = (INetworkUtils) CommonComponent.getComponent(INetworkUtils.class);
-    timeout = flowContext.getLong('pingTimeout', 3000L);
-    available = networkUtils.isNetworkAvailable(timeout, TimeUnit.MILLISECONDS, 2, false);
-    flowContext.setData('networkAvailable', available);
-    LogUtils.infoRule('网络状态检查: available=' + available);
-    return available;
-  ",
-  "inputs": [
-    { "name": "pingTimeout", "type": "Long", "description": "超时时间(ms)", "defaultValue": 3000 }
-  ],
-  "outputs": [
-    { "name": "networkAvailable", "type": "Boolean", "description": "网络是否可用" }
-  ]
-}
+    // ==================== 动态节点管理 ====================
 
-// 组件: 检查4G模式
-{
-  "componentId": "check4GMode",
-  "componentName": "检查4G网络模式",
-  "category": "状态检查",
-  "componentType": "BOOLEAN",
-  "description": "检查当前是否为4G网络模式",
-  "script": "
-    import com.weidian.app24h.iot.plugin.common.service.edge.ShopConfigManager;
-    import com.weidian.app24h.iot.plugin.common.engine.common.CommonComponent;
+    /**
+     * 添加脚本节点
+     * @param nodeId 节点 ID
+     * @param nodeName 节点名称
+     * @param script 脚本内容
+     * @param nodeType script | boolean_script | switch_script
+     * @param language 脚本语言
+     */
+    public void addScriptNode(String nodeId, String nodeName, String script,
+                              String nodeType, String language);
 
-    shopConfigManager = (ShopConfigManager) CommonComponent.getComponent(ShopConfigManager.class);
-    networkType = (String) shopConfigManager.getGlobalValue('netWorkType');
-    is4G = '4G'.equals(networkType);
-    flowContext.setData('networkType', networkType);
-    flowContext.setData('is4GMode', is4G);
-    LogUtils.infoRule('4G模式检查: networkType=' + networkType + ', is4G=' + is4G);
-    return is4G;
-  ",
-  "outputs": [
-    { "name": "networkType", "type": "String", "description": "网络类型" },
-    { "name": "is4GMode", "type": "Boolean", "description": "是否4G模式" }
-  ]
-}
+    /**
+     * 刷新脚本节点 (热更新)
+     */
+    public void reloadScriptNode(String nodeId, String script, String nodeType, String language);
 
-// 组件: 检查应急模式
-{
-  "componentId": "checkEmergencyMode",
-  "componentName": "检查应急模式",
-  "category": "状态检查",
-  "componentType": "BOOLEAN",
-  "description": "检查是否处于断电应急模式",
-  "script": "
-    import com.weidian.app24h.iot.plugin.common.service.edge.ShopConfigManager;
-    import com.weidian.app24h.iot.plugin.common.engine.common.CommonComponent;
+    /**
+     * 移除脚本节点
+     */
+    public void removeScriptNode(String nodeId);
 
-    shopConfigManager = (ShopConfigManager) CommonComponent.getComponent(ShopConfigManager.class);
-    emergencyMode = (Boolean) shopConfigManager.getGlobalValue('bmsEmergencyMode');
-    flowContext.setData('emergencyMode', emergencyMode);
-    LogUtils.infoRule('应急模式检查: emergencyMode=' + emergencyMode);
-    return Boolean.TRUE.equals(emergencyMode);
-  ",
-  "outputs": [
-    { "name": "emergencyMode", "type": "Boolean", "description": "应急模式状态" }
-  ]
+    // ==================== 动态流程链管理 ====================
+
+    /**
+     * 添加/更新流程链
+     * @param chainId 链 ID
+     * @param el EL 表达式
+     */
+    public void addOrUpdateChain(String chainId, String el);
+
+    /**
+     * 移除流程链
+     */
+    public void removeChain(String chainId);
+
+    // ==================== 流程执行 ====================
+
+    /**
+     * 执行流程
+     * @param chainId 流程链 ID
+     * @param params 初始参数
+     * @return 执行结果
+     */
+    public ExecuteResult executeFlow(String chainId, Map<String, Object> params);
+
+    /**
+     * 带超时的执行
+     */
+    public ExecuteResult executeWithTimeout(String chainId, Map<String, Object> params,
+                                            long timeout, TimeUnit unit);
+
+    /**
+     * 直接执行 EL 表达式 (无需预先注册 Chain)
+     */
+    public ExecuteResult executeEL(String el, Map<String, Object> params);
 }
 ```
 
-### 3.3 路由选择组件 (SWITCH)
+### 3.4 上下文管理 (FlowContext)
 
-```json
-// 组件: 蓝牙命令路由
-{
-  "componentId": "bluetoothCommandRouter",
-  "componentName": "蓝牙命令类型路由",
-  "category": "路由",
-  "componentType": "SWITCH",
-  "description": "根据蓝牙命令类型路由到不同处理分支",
-  "script": "
-    commandType = flowContext.getInt('commandType');
-    LogUtils.infoRule('蓝牙命令路由: type=' + commandType);
-    if (commandType == 1) return 'AUTH';
-    if (commandType == 2) return 'DOOR_OPERATE';
-    if (commandType == 3) return 'READ_STATUS';
-    if (commandType == 5) return 'NOTIFY';
-    return 'UNKNOWN';
-  ",
-  "inputs": [
-    { "name": "commandType", "type": "Integer", "description": "蓝牙命令类型", "required": true }
-  ],
-  "switchBranches": [
-    { "branchId": "AUTH", "branchName": "认证", "description": "蓝牙设备认证 (type=1)" },
-    { "branchId": "DOOR_OPERATE", "branchName": "门操作", "description": "开门/关门操作 (type=2)" },
-    { "branchId": "READ_STATUS", "branchName": "读状态", "description": "读取门状态 (type=3)" },
-    { "branchId": "NOTIFY", "branchName": "通知", "description": "通知APP已认证 (type=5)" },
-    { "branchId": "UNKNOWN", "branchName": "未知", "description": "未知命令类型" }
-  ],
-  "defaultBranch": "UNKNOWN"
-}
+```java
+/**
+ * 流程执行上下文 - 线程安全的数据存取
+ *
+ * 设计要点：
+ * 1. 基于 ConcurrentHashMap 保证线程安全
+ * 2. 提供类型安全的 getter 方法
+ * 3. 支持默认值
+ * 4. 组件间通过上下文通信，实现解耦
+ */
+public class FlowContext extends ConcurrentHashMap<String, Object> {
 
-// 组件: 开门方式路由
-{
-  "componentId": "openWayRouter",
-  "componentName": "开门方式路由",
-  "category": "路由",
-  "componentType": "SWITCH",
-  "description": "根据开门方式路由到不同处理逻辑",
-  "script": "
-    openWay = flowContext.getString('openWay');
-    LogUtils.infoRule('开门方式路由: openWay=' + openWay);
-    if ('wdPlusScanCode'.equals(openWay)) return 'SCAN_CODE';
-    if ('wdPlusAfterShopping'.equals(openWay)) return 'AFTER_SHOPPING';
-    if ('posOpen'.equals(openWay)) return 'POS';
-    if ('customerServiceOpen'.equals(openWay) || 'sellerOpen'.equals(openWay)) return 'CUSTOMER_SERVICE';
-    if ('infraredSensor'.equals(openWay)) return 'INFRARED';
-    if ('panicButton'.equals(openWay)) return 'PANIC_BUTTON';
-    if ('shopBleOpenDoor'.equals(openWay)) return 'BLUETOOTH';
-    return 'DEFAULT';
-  ",
-  "inputs": [
-    { "name": "openWay", "type": "String", "description": "开门方式", "required": true }
-  ],
-  "switchBranches": [
-    { "branchId": "SCAN_CODE", "branchName": "扫码开门", "description": "小程序扫码进店" },
-    { "branchId": "AFTER_SHOPPING", "branchName": "购物后开门", "description": "购物完成后离店" },
-    { "branchId": "POS", "branchName": "POS开门", "description": "收银台POS开门" },
-    { "branchId": "CUSTOMER_SERVICE", "branchName": "客服开门", "description": "客服远程开门" },
-    { "branchId": "INFRARED", "branchName": "红外感应", "description": "红外感应自动开门" },
-    { "branchId": "PANIC_BUTTON", "branchName": "应急按钮", "description": "应急开关开门" },
-    { "branchId": "BLUETOOTH", "branchName": "蓝牙开门", "description": "蓝牙近场开门" },
-    { "branchId": "DEFAULT", "branchName": "默认", "description": "默认处理" }
-  ],
-  "defaultBranch": "DEFAULT"
-}
+    // ========== 类型安全的数据存取 ==========
 
-// 组件: 门编号路由
-{
-  "componentId": "doorNoRouter",
-  "componentName": "门编号路由",
-  "category": "路由",
-  "componentType": "SWITCH",
-  "description": "根据门编号路由到对应门的处理逻辑",
-  "script": "
-    doorNo = flowContext.getInt('doorNo', 0);
-    LogUtils.infoRule('门编号路由: doorNo=' + doorNo);
-    if (doorNo == 1) return 'DOOR_1';
-    if (doorNo == 2) return 'DOOR_2';
-    return 'ALL_DOORS';
-  ",
-  "inputs": [
-    { "name": "doorNo", "type": "Integer", "description": "门编号" }
-  ],
-  "switchBranches": [
-    { "branchId": "DOOR_1", "branchName": "1号门", "description": "处理1号门" },
-    { "branchId": "DOOR_2", "branchName": "2号门", "description": "处理2号门" },
-    { "branchId": "ALL_DOORS", "branchName": "所有门", "description": "同时处理所有门" }
-  ],
-  "defaultBranch": "ALL_DOORS"
-}
-```
-
-### 3.4 业务操作组件
-
-```json
-// 组件: 执行开门
-{
-  "componentId": "executeDoorOpen",
-  "componentName": "执行开门操作",
-  "category": "门操作",
-  "componentType": "SCRIPT",
-  "description": "执行门的开启操作",
-  "script": "
-    import com.weidian.iot.sdk.device.client.model.req.InvokeFunction;
-    import com.weidian.iot.sdk.device.client.model.CommandRsp;
-
-    doorService = flowContext.getData('doorService');
-    openWay = flowContext.getString('openWay', 'default');
-
-    paramMap = new HashMap();
-    paramMap.put('openWay', openWay);
-
-    invokeFunction = new InvokeFunction();
-    invokeFunction.setFunctionId('door.open');
-    invokeFunction.setParas(paramMap);
-
-    resp = doorService.onCommand(invokeFunction);
-    success = resp.isSuccess() && (Boolean) resp.getParas();
-
-    flowContext.setData('doorOpenSuccess', success);
-    flowContext.setData('doorOpenResult', resp);
-    LogUtils.infoRule('开门操作: success=' + success);
-  ",
-  "inputs": [
-    { "name": "doorService", "type": "DeviceService", "description": "门服务实例", "required": true },
-    { "name": "openWay", "type": "String", "description": "开门方式", "defaultValue": "default" }
-  ],
-  "outputs": [
-    { "name": "doorOpenSuccess", "type": "Boolean", "description": "开门是否成功" },
-    { "name": "doorOpenResult", "type": "CommandRsp", "description": "命令响应结果" }
-  ]
-}
-
-// 组件: 执行关门
-{
-  "componentId": "executeDoorClose",
-  "componentName": "执行关门操作",
-  "category": "门操作",
-  "componentType": "SCRIPT",
-  "description": "执行门的关闭操作",
-  "script": "
-    import com.weidian.iot.sdk.device.client.model.req.InvokeFunction;
-
-    doorService = flowContext.getData('doorService');
-
-    invokeFunction = new InvokeFunction();
-    invokeFunction.setFunctionId('door.close');
-    invokeFunction.setParas(new HashMap());
-
-    resp = doorService.onCommand(invokeFunction);
-    success = resp.isSuccess() && (Boolean) resp.getParas();
-
-    flowContext.setData('doorCloseSuccess', success);
-    LogUtils.infoRule('关门操作: success=' + success);
-  ",
-  "inputs": [
-    { "name": "doorService", "type": "DeviceService", "description": "门服务实例", "required": true }
-  ],
-  "outputs": [
-    { "name": "doorCloseSuccess", "type": "Boolean", "description": "关门是否成功" }
-  ]
-}
-
-// 组件: 创建自动落锁任务
-{
-  "componentId": "createAutoLock",
-  "componentName": "创建自动落锁任务",
-  "category": "门操作",
-  "componentType": "SCRIPT",
-  "description": "创建定时自动落锁任务",
-  "script": "
-    import com.weidian.iot.sdk.device.client.model.req.InvokeFunction;
-
-    doorService = flowContext.getData('doorService');
-    lockTime = flowContext.getLong('lockTime', 15000L);
-    deviceType = flowContext.getData('deviceType');
-    enterOrLeave = flowContext.getString('enterOrLeave', 'enter');
-    openWay = flowContext.getString('openWay', 'default');
-
-    params = new HashMap();
-    params.put('closeWaitTime', lockTime);
-    params.put('deviceId', doorService.getIotDevice().getDeviceId());
-    params.put('deviceType', deviceType);
-    params.put('enterOrLeave', enterOrLeave);
-    params.put('openWay', openWay);
-    params.put('paramMap', new HashMap());
-
-    invokeFunction = new InvokeFunction();
-    invokeFunction.setFunctionId('door.createAutoLock');
-    invokeFunction.setParas(params);
-
-    doorService.onCommand(invokeFunction);
-    flowContext.setData('autoLockCreated', true);
-    LogUtils.infoRule('自动落锁任务创建: lockTime=' + lockTime);
-  ",
-  "inputs": [
-    { "name": "lockTime", "type": "Long", "description": "落锁等待时间(ms)", "defaultValue": 15000 },
-    { "name": "enterOrLeave", "type": "String", "description": "进店/离店", "defaultValue": "enter" },
-    { "name": "openWay", "type": "String", "description": "开门方式", "defaultValue": "default" }
-  ],
-  "outputs": [
-    { "name": "autoLockCreated", "type": "Boolean", "description": "任务是否创建成功" }
-  ]
-}
-
-// 组件: 播放语音
-{
-  "componentId": "playAudio",
-  "componentName": "播放语音",
-  "category": "音频",
-  "componentType": "SCRIPT",
-  "description": "通过音箱播放指定语音文件",
-  "script": "
-    import com.weidian.iot.sdk.device.client.model.req.InvokeFunction;
-
-    hornService = flowContext.getData('innerHornService');
-    fileName = flowContext.getString('audioFileName');
-
-    if (hornService != null && fileName != null) {
-      paramMap = new HashMap();
-      paramMap.put('fileName', fileName);
-
-      invokeFunction = new InvokeFunction();
-      invokeFunction.setFunctionId('playerAudio');
-      invokeFunction.setParas(paramMap);
-
-      hornService.onCommand(invokeFunction);
-      flowContext.setData('audioPlayed', true);
-      LogUtils.infoRule('播放语音: fileName=' + fileName);
-    } else {
-      flowContext.setData('audioPlayed', false);
-      LogUtils.infoRule('播放语音失败: hornService或fileName为空');
-    }
-  ",
-  "inputs": [
-    { "name": "innerHornService", "type": "DeviceService", "description": "音箱服务" },
-    { "name": "audioFileName", "type": "String", "description": "音频文件名", "required": true }
-  ],
-  "outputs": [
-    { "name": "audioPlayed", "type": "Boolean", "description": "是否播放成功" }
-  ]
-}
-
-// 组件: 云端上报
-{
-  "componentId": "ackReport",
-  "componentName": "云端上报",
-  "category": "通信",
-  "componentType": "SCRIPT",
-  "description": "向云端上报事件或状态",
-  "script": "
-    import com.weidian.app24h.iot.plugin.common.dto.GmsModel;
-    import com.weidian.app24h.iot.plugin.common.utils.AckAdapter;
-
-    eventContext = flowContext.getData('eventContext');
-    ackType = flowContext.getString('ackType');
-    ackModel = flowContext.getData('ackModel');
-
-    gmsModel = new GmsModel();
-    gmsModel.type = ackType;
-    gmsModel.sendTime = System.currentTimeMillis();
-
-    if (eventContext != null) {
-      gmsModel.contextId = eventContext.getContextId();
-      gmsModel.traceId = eventContext.getTraceId();
+    @SuppressWarnings("unchecked")
+    public <T> T getData(String key) {
+        return (T) get(key);
     }
 
-    AckAdapter.eventAck(eventContext, gmsModel, ackModel);
-    flowContext.setData('reported', true);
-    LogUtils.infoRule('云端上报完成: ackType=' + ackType);
-  ",
-  "inputs": [
-    { "name": "eventContext", "type": "EventContextModel", "description": "事件上下文" },
-    { "name": "ackType", "type": "String", "description": "上报类型", "required": true },
-    { "name": "ackModel", "type": "Object", "description": "上报数据模型", "required": true }
-  ],
-  "outputs": [
-    { "name": "reported", "type": "Boolean", "description": "是否上报成功" }
-  ]
+    public <T> T getData(String key, T defaultValue) {
+        T value = getData(key);
+        return value != null ? value : defaultValue;
+    }
+
+    public FlowContext setData(String key, Object value) {
+        put(key, value);
+        return this;
+    }
+
+    // ========== 便捷方法 ==========
+
+    public String getString(String key);
+    public String getString(String key, String defaultValue);
+
+    public Integer getInt(String key);
+    public int getInt(String key, int defaultValue);
+
+    public Long getLong(String key);
+    public long getLong(String key, long defaultValue);
+
+    public Boolean getBoolean(String key);
+    public boolean getBoolean(String key, boolean defaultValue);
+
+    public <T> List<T> getList(String key);
+    public <K, V> Map<K, V> getMap(String key);
 }
 ```
 
 ---
 
-## 四、流程编排示例
+## 四、编排类型与 EL 映射
 
-### 4.1 开门流程 (openDoor)
+### 4.1 支持的编排类型
 
-#### 流程图
+| 编排类型 | 用途 | EL 表达式 | 示例 |
+|---------|------|-----------|------|
+| **THEN** | 顺序执行 | `THEN(a, b, c)` | 依次执行 a、b、c |
+| **WHEN** | 并行执行 | `WHEN(a, b, c)` | 同时执行 a、b、c |
+| **IF** | 条件分支 | `IF(cond, trueNode, falseNode)` | 根据 cond 结果选择执行 |
+| **SWITCH** | 多路分支 | `SWITCH(cond).to(a, b, c).id('A', 'B', 'C')` | 根据 cond 返回值路由 |
+| **FOR** | 固定循环 | `FOR(n).DO(body)` | 循环执行 n 次 |
+| **WHILE** | 条件循环 | `WHILE(cond).DO(body)` | cond 为真时循环 |
+| **CATCH** | 异常处理 | `CATCH(tryBody).DO(catchBody)` | 捕获异常并处理 |
+| **AND** | 逻辑与 | `AND(a, b, c)` | 所有条件都为真 |
+| **OR** | 逻辑或 | `OR(a, b, c)` | 任一条件为真 |
+| **NOT** | 逻辑非 | `NOT(a)` | 取反 |
 
-```
-┌────────────┐
-│  开始      │
-└─────┬──────┘
-      ↓
-┌────────────────┐
-│ initDeviceAdapter │
-└─────┬──────────┘
-      ↓
-┌────────────────┐
-│ getDoorService │
-└─────┬──────────┘
-      ↓
-┌────────────────┐
-│ getHornService │
-└─────┬──────────┘
-      ↓
-┌──────────────────┐
-│ checkWatchStatus │ ←── BOOLEAN
-└─────┬────────────┘
-      │
-   ┌──┴──┐
-  是│    │否
-   ↓    ↓
-┌─────────┐ ┌─────────────────┐
-│值守流程  │ │ executeDoorOpen │ (直接开门)
-└────┬────┘ └────────┬────────┘
-     ↓               │
-┌──────────────┐     │
-│ check4GMode  │     │
-└─────┬────────┘     │
-   ┌──┴──┐           │
-  是│    │否         │
-   ↓    ↓           │
- 4G流程  正常流程     │
-   │      │         │
-   └──────┴─────────┘
-          ↓
-   ┌────────────────┐
-   │ playAudio      │
-   └─────┬──────────┘
-         ↓
-   ┌────────────────┐
-   │ createAutoLock │
-   └─────┬──────────┘
-         ↓
-   ┌────────────────┐
-   │ ackReport      │
-   └─────┬──────────┘
-         ↓
-   ┌────────────┐
-   │    结束    │
-   └────────────┘
-```
+### 4.2 组件类型与 LiteFlow 节点映射
 
-#### 编排 JSON
+| QLComponent.ComponentType | LiteFlow 节点类型 | 用途 | 返回值约束 |
+|--------------------------|------------------|------|-----------|
+| **SCRIPT** | `script` | 执行业务逻辑 | 无返回值要求，通过 flowContext 传递数据 |
+| **BOOLEAN** | `boolean_script` | 条件判断 | 必须返回 `true` 或 `false` |
+| **SWITCH** | `switch_script` | 多路路由 | 必须返回分支标识字符串 |
 
-```json
-{
-  "flowId": "openDoor",
-  "flowName": "开门流程",
-  "description": "处理各类开门请求的完整流程",
-  "version": "1.0.0",
-  "root": {
-    "type": "THEN",
-    "children": [
-      { "type": "component", "componentRef": "initDeviceAdapter", "id": "init" },
-      { "type": "component", "componentRef": "getDoorService", "id": "getDoor" },
-      { "type": "component", "componentRef": "getHornService", "id": "getHorn" },
-      {
-        "type": "IF",
-        "condition": { "type": "component", "componentRef": "checkWatchStatus" },
-        "children": [
-          {
-            "type": "THEN",
-            "id": "onWatch_branch",
-            "children": [
-              {
-                "type": "IF",
-                "condition": { "type": "component", "componentRef": "check4GMode" },
-                "children": [
-                  { "type": "component", "componentRef": "handle4GOpenDoor", "id": "4g_open" },
-                  {
-                    "type": "IF",
-                    "condition": { "type": "component", "componentRef": "checkEmergencyMode" },
-                    "children": [
-                      { "type": "component", "componentRef": "handleEmergencyOpenDoor", "id": "emergency_open" },
-                      { "type": "component", "componentRef": "executeDoorOpen", "id": "normal_open" }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          { "type": "component", "componentRef": "executeDoorOpen", "id": "direct_open" }
-        ]
-      },
-      { "type": "component", "componentRef": "playAudio", "id": "play" },
-      { "type": "component", "componentRef": "createAutoLock", "id": "autoLock" },
-      { "type": "component", "componentRef": "ackReport", "id": "report" }
-    ]
-  },
-  "usedComponentIds": [
-    "initDeviceAdapter", "getDoorService", "getHornService",
-    "checkWatchStatus", "check4GMode", "checkEmergencyMode",
-    "executeDoorOpen", "playAudio", "createAutoLock", "ackReport"
-  ]
-}
-```
+### 4.3 EL 修饰符支持
 
-#### 生成的 LiteFlow EL
-
-```
-THEN(
-  initDeviceAdapter,
-  getDoorService,
-  getHornService,
-  IF(checkWatchStatus,
-    THEN(
-      IF(check4GMode,
-        handle4GOpenDoor,
-        IF(checkEmergencyMode, handleEmergencyOpenDoor, executeDoorOpen)
-      )
-    ),
-    executeDoorOpen
-  ),
-  playAudio,
-  createAutoLock,
-  ackReport
-)
-```
-
----
-
-### 4.2 蓝牙控制流程 (blueTooth)
-
-#### 流程图
-
-```
-┌────────────┐
-│   开始     │
-└─────┬──────┘
-      ↓
-┌──────────────────┐
-│ initDeviceAdapter │
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ parseBluetoothCmd │ (解析蓝牙命令)
-└─────┬────────────┘
-      ↓
-┌────────────────────────┐
-│ bluetoothCommandRouter │ ←── SWITCH (5分支)
-└─────────┬──────────────┘
-          │
-    ┌─────┼─────┬─────┬─────┐
-    ↓     ↓     ↓     ↓     ↓
- AUTH  DOOR   READ  NOTIFY UNKNOWN
-    │     │     │     │     │
-    ↓     ↓     ↓     ↓     ↓
-┌──────┐┌──────┐┌──────┐┌──────┐┌──────┐
-│认证  ││门操作││读状态││通知  ││未知  │
-└──┬───┘└──┬───┘└──┬───┘└──┬───┘└──┬───┘
-   └───────┴───────┴───────┴───────┘
-                   ↓
-          ┌────────────────┐
-          │ sendBleResponse │ (发送响应)
-          └─────┬──────────┘
-                ↓
-          ┌────────────┐
-          │    结束    │
-          └────────────┘
-```
-
-#### 编排 JSON
-
-```json
-{
-  "flowId": "blueTooth",
-  "flowName": "蓝牙控制流程",
-  "description": "处理蓝牙设备的各类命令",
-  "version": "1.0.0",
-  "root": {
-    "type": "THEN",
-    "children": [
-      { "type": "component", "componentRef": "initDeviceAdapter", "id": "init" },
-      { "type": "component", "componentRef": "parseBluetoothCommand", "id": "parse" },
-      {
-        "type": "SWITCH",
-        "condition": { "type": "component", "componentRef": "bluetoothCommandRouter" },
-        "children": [
-          { "type": "component", "componentRef": "handleBluetoothAuth", "properties": { "branch": "AUTH" } },
-          { "type": "component", "componentRef": "handleBluetoothDoorOperate", "properties": { "branch": "DOOR_OPERATE" } },
-          { "type": "component", "componentRef": "handleBluetoothReadStatus", "properties": { "branch": "READ_STATUS" } },
-          { "type": "component", "componentRef": "handleBluetoothNotify", "properties": { "branch": "NOTIFY" } },
-          { "type": "component", "componentRef": "handleBluetoothUnknown", "properties": { "branch": "UNKNOWN" } }
-        ]
-      },
-      { "type": "component", "componentRef": "sendBleResponse", "id": "response" }
-    ]
-  }
-}
-```
-
-#### 生成的 LiteFlow EL
-
-```
-THEN(
-  initDeviceAdapter,
-  parseBluetoothCommand,
-  SWITCH(bluetoothCommandRouter).to(
-    handleBluetoothAuth,
-    handleBluetoothDoorOperate,
-    handleBluetoothReadStatus,
-    handleBluetoothNotify,
-    handleBluetoothUnknown
-  ).id('AUTH', 'DOOR_OPERATE', 'READ_STATUS', 'NOTIFY', 'UNKNOWN'),
-  sendBleResponse
-)
-```
-
----
-
-### 4.3 开启值守流程 (onWatch)
-
-#### 流程图
-
-```
-┌────────────┐
-│   开始     │
-└─────┬──────┘
-      ↓
-┌──────────────────┐
-│ initDeviceAdapter │
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ resetGlobalStatus │ (重置全局状态)
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ resetSwitchStatus │ (重置开关状态)
-└─────┬────────────┘
-      ↓
-┌─────────────────────┐
-│       WHEN          │ ←── 并行执行
-│  ┌───────┬───────┐  │
-│  ↓       ↓       │  │
-│ closeDoor1  closeDoor2  │
-│  │       │       │  │
-│  └───────┴───────┘  │
-└─────────┬───────────┘
-          ↓
-┌──────────────────┐
-│ setWatchStatusOn │ (设置值守状态)
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ playWatchOnAudio │ (播放值守开启语音)
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ ackWatchOnReport │ (上报云端)
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│triggerOnWatchSuccess│ (触发成功事件)
-└─────┬────────────┘
-      ↓
-┌────────────┐
-│    结束    │
-└────────────┘
-```
-
-#### 编排 JSON
-
-```json
-{
-  "flowId": "onWatch",
-  "flowName": "开启值守流程",
-  "description": "执行开启值守的完整流程，包括关门、状态设置、语音播报",
-  "version": "1.0.0",
-  "root": {
-    "type": "THEN",
-    "children": [
-      { "type": "component", "componentRef": "initDeviceAdapter", "id": "init" },
-      { "type": "component", "componentRef": "resetGlobalStatus", "id": "resetGlobal" },
-      { "type": "component", "componentRef": "resetSwitchStatus", "id": "resetSwitch" },
-      {
-        "type": "WHEN",
-        "id": "close_all_doors",
-        "children": [
-          { "type": "component", "componentRef": "closeDoor1", "id": "close1" },
-          { "type": "component", "componentRef": "closeDoor2", "id": "close2" }
-        ]
-      },
-      { "type": "component", "componentRef": "setWatchStatusOn", "id": "setWatch" },
-      { "type": "component", "componentRef": "playWatchOnAudio", "id": "playAudio" },
-      { "type": "component", "componentRef": "ackWatchOnReport", "id": "report" },
-      { "type": "component", "componentRef": "triggerOnWatchSuccess", "id": "trigger" }
-    ]
-  }
-}
-```
-
-#### 生成的 LiteFlow EL
-
-```
-THEN(
-  initDeviceAdapter,
-  resetGlobalStatus,
-  resetSwitchStatus,
-  WHEN(closeDoor1, closeDoor2),
-  setWatchStatusOn,
-  playWatchOnAudio,
-  ackWatchOnReport,
-  triggerOnWatchSuccess
-)
-```
-
----
-
-### 4.4 应急开关流程 (switchPress)
-
-#### 流程图
-
-```
-┌────────────┐
-│   开始     │
-└─────┬──────┘
-      ↓
-┌──────────────────┐
-│ initDeviceAdapter │
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ getSwitchService │
-└─────┬────────────┘
-      ↓
-┌──────────────────┐
-│ checkWatchStatus │ ←── BOOLEAN
-└─────┬────────────┘
-      │
-   ┌──┴──┐
-  是│    │否
-   ↓    ↓
-┌─────────────┐  ┌─────────────────┐
-│ 值守状态处理 │  │ handleOffWatch  │ (未值守直接开门)
-└──────┬──────┘  └────────┬────────┘
-       ↓                  │
-┌──────────────────┐      │
-│checkNetworkStatus│      │
-└─────┬────────────┘      │
-   ┌──┴──┐                │
-  是│    │否              │
-   ↓    ↓                │
-┌────────┐ ┌────────────┐ │
-│有网流程│ │无网应急开门│ │
-│(呼叫客服)│ │            │ │
-└────┬───┘ └─────┬──────┘ │
-     │           │        │
-     └───────────┴────────┘
-                 ↓
-          ┌────────────────┐
-          │ resetHandOpening│
-          └─────┬──────────┘
-                ↓
-          ┌────────────┐
-          │    结束    │
-          └────────────┘
-```
-
-#### 编排 JSON
-
-```json
-{
-  "flowId": "switchPress",
-  "flowName": "应急开关流程",
-  "description": "处理应急开关按下事件，根据值守状态和网络状态执行不同逻辑",
-  "version": "1.0.0",
-  "root": {
-    "type": "THEN",
-    "children": [
-      { "type": "component", "componentRef": "initDeviceAdapter", "id": "init" },
-      { "type": "component", "componentRef": "getSwitchService", "id": "getSwitch" },
-      { "type": "component", "componentRef": "getHornService", "id": "getHorn" },
-      {
-        "type": "IF",
-        "condition": { "type": "component", "componentRef": "checkWatchStatus" },
-        "children": [
-          {
-            "type": "THEN",
-            "id": "onWatch_branch",
-            "children": [
-              {
-                "type": "IF",
-                "condition": { "type": "component", "componentRef": "checkNetworkStatus" },
-                "children": [
-                  {
-                    "type": "IF",
-                    "condition": { "type": "component", "componentRef": "check4GMode" },
-                    "children": [
-                      { "type": "component", "componentRef": "emergencySwitchOpenDoor", "id": "4g_emergency" },
-                      { "type": "component", "componentRef": "callCustomerService", "id": "call_service" }
-                    ]
-                  },
-                  { "type": "component", "componentRef": "emergencySwitchOpenDoor", "id": "no_net_emergency" }
-                ]
-              }
-            ]
-          },
-          { "type": "component", "componentRef": "handleOffWatchSwitch", "id": "off_watch" }
-        ]
-      },
-      { "type": "component", "componentRef": "resetHandOpening", "id": "reset" }
-    ]
-  }
-}
-```
-
-#### 生成的 LiteFlow EL
-
-```
-THEN(
-  initDeviceAdapter,
-  getSwitchService,
-  getHornService,
-  IF(checkWatchStatus,
-    THEN(
-      IF(checkNetworkStatus,
-        IF(check4GMode, emergencySwitchOpenDoor, callCustomerService),
-        emergencySwitchOpenDoor
-      )
-    ),
-    handleOffWatchSwitch
-  ),
-  resetHandOpening
-)
-```
+| 修饰符 | 用途 | 示例 |
+|-------|------|------|
+| `.id("xxx")` | 设置节点标识 | `THEN(a, b).id("main_flow")` |
+| `.tag("xxx")` | 设置节点标签 | `node.tag("important")` |
+| `.data("xxx")` | 传递节点数据 | `node.data("{\"key\": \"value\"}")` |
+| `.maxWaitSeconds(n)` | WHEN 最大等待时间 | `WHEN(a, b).maxWaitSeconds(10)` |
+| `.ignoreError(true)` | 忽略执行错误 | `node.ignoreError(true)` |
+| `.must()` | WHEN 中必须成功 | `WHEN(a.must(), b)` |
+| `.BREAK(cond)` | 循环中断条件 | `FOR(10).DO(body).BREAK(breakCond)` |
 
 ---
 
 ## 五、API 接口设计
 
-### 5.0 与 liteflow-editor-server 接口整合
-
-基于 liteflow-editor-server 的接口设计，整合本项目的组件管理能力：
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    API 接口架构 (整合设计)                            │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │         liteflow-editor-server 原生接口 (复用)                 │   │
-│  ├──────────────────────────────────────────────────────────────┤   │
-│  │                                                               │   │
-│  │  EL 转换接口 (/api)                                           │   │
-│  │  ├─ POST /generateJsonEL    # EL表达式 → JSON (CmpProperty)  │   │
-│  │  └─ POST /generateEL        # JSON (CmpProperty) → EL表达式   │   │
-│  │                                                               │   │
-│  │  业务接口 (/api)                                              │   │
-│  │  ├─ GET  /getCmpList        # 获取所有组件列表                 │   │
-│  │  ├─ GET  /getChainList      # 获取所有流程链列表               │   │
-│  │  ├─ POST /createChain       # 创建流程链 (elJson → Chain)     │   │
-│  │  ├─ POST /updateChain       # 更新流程链                       │   │
-│  │  ├─ POST /deleteChain       # 删除流程链                       │   │
-│  │  ├─ GET  /getChainById      # 获取链详情 (含 EL + JSON)       │   │
-│  │  └─ POST /verifyELExpression # 验证 EL 表达式                 │   │
-│  │                                                               │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                              │                                       │
-│                              ▼                                       │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │         本项目扩���接口 (新增)                                   │   │
-│  ├──────────────────────────────────────────────────────────────┤   │
-│  ���                                                               │   │
-│  │  组件管理 (/api/component)                                    │   │
-│  │  ├─ POST   /                # 创建 QLExpress 组件             │   │
-│  │  ├─ GET    /{componentId}   # 获取组件详情 (含脚本)           │   │
-│  │  ├─ PUT    /{componentId}   # 更新组件                        │   │
-│  │  ├─ DELETE /{componentId}   # 删除组件                        │   │
-│  │  ├─ GET    /list            # 组件列表 (支持分类筛选)         │   │
-│  │  ├─ POST   /validate        # 验证组件脚本语法                │   │
-│  │  └─ POST   /test            # 测试组件执行                    │   │
-│  │                                                               │   │
-│  │  流程执行 (/api/liteflow)                                     │   │
-│  │  ├─ POST /dynamic/node      # 动态添加脚本节点                │   │
-│  │  ├─ PUT  /dynamic/node/{id} # 刷新脚本节点                    │   │
-│  │  ├─ POST /dynamic/chain     # 动态添加/更新流程链             │   │
-│  │  ├─ POST /dynamic/load      # 批量加载流程定义                │   │
-│  │  ├─ POST /execute/{chainId} # 执行流程链                      │   │
-│  │  └─ POST /dynamic/execute-el # 直接执行 EL 表达式             │   │
-│  │                                                               │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-#### liteflow-editor-server 核心请求/响应格式
-
-```java
-// ========== 请求 VO ==========
-
-// 创建/更新链请求
-@Data
-public class CreateChainVO {
-    private String chainId;         // 流程链ID
-    private CmpProperty elJson;     // 可视化 JSON 结构
-}
-
-// ========== 响应 VO ==========
-
-// 组件信息
-@Data
-public class CmpInfoVO {
-    private String cmpId;           // 组件ID
-    private String cmpName;         // 组件名称
-}
-
-// 链信息
-@Data
-public class ChainInfoVO {
-    private String chainId;         // 链ID
-    private String chainName;       // 链名称
-}
-
-// 链详情 (包含双向数据)
-@Data
-public class ChainInfo {
-    private ELInfo elInfo;          // EL 表达式形式
-    private CmpProperty elJson;     // JSON 结构形式
-}
-
-// EL 表达式容器
-@Data
-public class ELInfo {
-    private String chainId;         // 链ID
-    private String elStr;           // EL 表达式字符串
-}
-```
-
-#### 整合后的完整工作流
-
-```
-前端可视化画布操作:
-
-1. 拖拽组件到画布
-   ↓
-2. 连线形成流程
-   ↓
-3. 配置组件属性
-   ↓
-4. 保存流程
-   ├─► POST /api/generateEL          # CmpProperty → EL 表达式
-   │   └─► 返回: ELInfo { elStr: "THEN(a, IF(b, c, d), e);" }
-   │
-   ├─► POST /api/component/validate  # 验证所有组件脚本
-   │   └─► 返回: 验证结果
-   │
-   └─► POST /api/createChain         # 创建流程链
-       ├─► 内部调用 generateEL()
-       ├─► 加载组件脚本 → LiteFlow ScriptNode
-       └─► 构建 Chain
-
-5. 执���流程
-   └─► POST /api/liteflow/execute/{chainId}
-       └─► 返回: 执行结果 + 上下文数据 + 执行步骤
-```
-
-### 5.1 组件管理接口
+### 5.1 接口总览
 
 ```yaml
-# 组件 CRUD
-POST   /api/component                    # 创建组件
-GET    /api/component/{componentId}      # 获取组件详情
-PUT    /api/component/{componentId}      # 更新组件
-DELETE /api/component/{componentId}      # 删除组件
-GET    /api/component/list               # 获取组件列表 (支持分类筛选)
-GET    /api/component/category           # 获取所有分类
+# ==================== 组件管理 ====================
+POST   /api/v1/component                  # 创建组件
+GET    /api/v1/component/{componentId}    # 获取组件详情
+PUT    /api/v1/component/{componentId}    # 更新组件
+DELETE /api/v1/component/{componentId}    # 删除组件
+GET    /api/v1/component/list             # 组件列表 (支持筛选)
+GET    /api/v1/component/search           # 搜索组件
+GET    /api/v1/component/categories       # 获取所有分类
+POST   /api/v1/component/validate         # 验证组件脚本
+POST   /api/v1/component/test             # 测试组件执行
 
-# 组件验证
-POST   /api/component/validate           # 验证组件脚本
-POST   /api/component/test               # 测试组件执行
+# ==================== 流程管理 ====================
+POST   /api/v1/flow                       # 创建流程
+GET    /api/v1/flow/{flowId}              # 获取流程详情
+PUT    /api/v1/flow/{flowId}              # 更新流程
+DELETE /api/v1/flow/{flowId}              # 删除流程
+GET    /api/v1/flow/list                  # 流程列表
+POST   /api/v1/flow/validate              # 验证流程定义
+POST   /api/v1/flow/preview-el            # 预览 EL 表达式
+
+# ==================== 流程执行 ====================
+POST   /api/v1/flow/{flowId}/execute      # 执行流程
+POST   /api/v1/flow/execute-el            # 直接执行 EL 表达式
+GET    /api/v1/flow/{flowId}/status       # 获取执行状态
+
+# ==================== EL 转换 (兼容 liteflow-editor-server) ====================
+POST   /api/generateEL                    # CmpProperty JSON -> EL 表达式
+POST   /api/generateJsonEL                # EL 表达式 -> CmpProperty JSON
 ```
 
-#### 创建组件请求示例
+### 5.2 核心请求/响应格式
 
-```bash
-POST /api/component
-Content-Type: application/json
-
-{
-  "componentId": "checkWatchStatus",
-  "componentName": "检查值守状态",
-  "description": "检查当前是否处于值守状态",
-  "category": "状态检查",
-  "componentType": "BOOLEAN",
-  "script": "shopConfigManager = CommonComponent.getComponent(ShopConfigManager.class); startWatch = shopConfigManager.getGlobalValue('startWatch'); return startWatch != null && startWatch;",
-  "outputs": [
-    { "name": "startWatch", "type": "Boolean", "description": "值守状态" }
-  ]
-}
-```
-
-#### 组件列表响应示例
+#### 创建组件
 
 ```json
+// POST /api/v1/component
+// Request
+{
+  "componentId": "validate_user_age",
+  "componentName": "验证用户年龄",
+  "description": "检查用户年龄是否满足条件",
+  "category": "用户验证",
+  "componentType": "BOOLEAN",
+  "script": "age = flowContext.getInt('userAge', 0);\nminAge = flowContext.getInt('minAge', 18);\nresult = age >= minAge;\nflowContext.setData('ageValid', result);\nreturn result;",
+  "inputs": [
+    { "name": "userAge", "type": "Integer", "description": "用户年龄", "required": true },
+    { "name": "minAge", "type": "Integer", "description": "最小年龄", "defaultValue": 18 }
+  ],
+  "outputs": [
+    { "name": "ageValid", "type": "Boolean", "description": "年龄是否有效" }
+  ]
+}
+
+// Response
 {
   "code": 200,
   "data": {
-    "total": 38,
-    "categories": ["基础", "状态检查", "路由", "门操作", "音频", "通信"],
-    "components": [
-      {
-        "componentId": "checkWatchStatus",
-        "componentName": "检查值守状态",
-        "category": "状态检查",
-        "componentType": "BOOLEAN",
-        "description": "检查当前是否处于值守状态",
-        "version": "1.0.0"
-      },
-      {
-        "componentId": "bluetoothCommandRouter",
-        "componentName": "蓝牙命令类型路由",
-        "category": "路由",
-        "componentType": "SWITCH",
-        "description": "根据蓝牙命令类型路由到不同处理分支",
-        "switchBranchCount": 5,
-        "version": "1.0.0"
-      },
-      {
-        "componentId": "executeDoorOpen",
-        "componentName": "执行开门操作",
-        "category": "门操作",
-        "componentType": "SCRIPT",
-        "description": "执行门的开启操作",
-        "inputCount": 2,
-        "version": "1.0.0"
-      }
-    ]
+    "componentId": "validate_user_age",
+    "componentName": "验证用户年龄",
+    "componentType": "BOOLEAN",
+    "version": "1.0.0",
+    "enabled": true,
+    "createTime": "2024-01-01T10:00:00Z"
   }
 }
 ```
 
-### 5.2 流程编排接口
+#### 执行流程
 
-```yaml
-# 流程 CRUD
-POST   /api/flow                         # 创建流程
-GET    /api/flow/{flowId}                # 获取流程详情
-PUT    /api/flow/{flowId}                # 更新流程
-DELETE /api/flow/{flowId}                # 删除流程
-GET    /api/flow/list                    # 获取流程列表
-
-# 流程转换
-POST   /api/flow/convert                 # JSON → LiteFlow (节点+链)
-POST   /api/flow/validate                # 验证流程定义
-POST   /api/flow/preview-el              # 预览生成的 EL 表达式
-
-# 流程部署
-POST   /api/flow/{flowId}/deploy         # 部署流程到 LiteFlow
-POST   /api/flow/{flowId}/undeploy       # 卸载流程
-GET    /api/flow/{flowId}/status         # 获取部署状态
-```
-
-### 5.3 流程执行接口
-
-```yaml
-# 执行流程
-POST   /api/flow/{flowId}/execute        # 执行已部署流程
-POST   /api/flow/execute-direct          # 直接执行流程定义 (无需部署)
-
-# 执行历史
-GET    /api/flow/{flowId}/history        # 获取执行历史
-GET    /api/flow/execution/{executionId} # 获取执行详情
-```
-
-#### 执行请求示例
-
-```bash
-POST /api/flow/openDoor/execute
-Content-Type: application/json
-
+```json
+// POST /api/v1/flow/{flowId}/execute
+// Request
 {
   "params": {
-    "doorNo": 1,
-    "openWay": "wdPlusScanCode",
-    "openType": 0,
-    "userType": 1
+    "userId": "12345",
+    "userAge": 25,
+    "orderAmount": 1000
   },
   "options": {
     "timeout": 30000,
     "traceEnabled": true
   }
 }
-```
 
-#### 执行响应示例
-
-```json
+// Response
 {
   "code": 200,
   "data": {
     "success": true,
-    "flowId": "openDoor",
-    "executionId": "exec_20231217_001",
+    "flowId": "order_process",
+    "executionId": "exec_20240101_001",
     "context": {
-      "doorNo": 1,
-      "openWay": "wdPlusScanCode",
-      "startWatch": true,
-      "networkAvailable": true,
-      "is4GMode": false,
-      "doorOpenSuccess": true,
-      "audioPlayed": true,
-      "autoLockCreated": true,
-      "reported": true
+      "userId": "12345",
+      "userAge": 25,
+      "ageValid": true,
+      "orderProcessed": true
     },
-    "executeSteps": "initDeviceAdapter(2ms) -> getDoorService(1ms) -> getHornService(1ms) -> checkWatchStatus(1ms) -> executeDoorOpen(15ms) -> playAudio(3ms) -> createAutoLock(2ms) -> ackReport(5ms)",
-    "totalTime": 30,
+    "executeSteps": "init(2ms) -> validate_user_age(1ms) -> process_order(15ms) -> notify(3ms)",
+    "totalTime": 21,
     "trace": [
-      { "node": "initDeviceAdapter", "time": 2, "status": "success" },
-      { "node": "getDoorService", "time": 1, "status": "success" },
-      { "node": "checkWatchStatus", "time": 1, "status": "success", "result": true },
-      { "node": "executeDoorOpen", "time": 15, "status": "success", "result": true },
-      { "node": "playAudio", "time": 3, "status": "success" },
-      { "node": "ackReport", "time": 5, "status": "success" }
+      { "node": "init", "time": 2, "status": "success" },
+      { "node": "validate_user_age", "time": 1, "status": "success", "result": true },
+      { "node": "process_order", "time": 15, "status": "success" },
+      { "node": "notify", "time": 3, "status": "success" }
     ]
   }
 }
@@ -1758,165 +767,340 @@ Content-Type: application/json
 
 ---
 
-## 六、核心转换逻辑
+## 六、组件开发规范
 
-### 6.1 JSON → LiteFlow 转换服务
+### 6.1 脚本编写规范
+
+```javascript
+// ========== 1. 通过 flowContext 获取输入 ==========
+// 推荐：使用带默认值的方法，避免空指针
+userId = flowContext.getString('userId');
+amount = flowContext.getInt('amount', 0);
+config = flowContext.getData('config');
+
+// ========== 2. 执行业务逻辑 ==========
+// 注意：脚本内可以使用 import 导入 Java 类
+import java.util.HashMap;
+
+result = new HashMap();
+result.put('success', true);
+result.put('message', '处理完成');
+
+// ========== 3. 通过 flowContext 设置输出 ==========
+flowContext.setData('processResult', result);
+flowContext.setData('processTime', System.currentTimeMillis());
+
+// ========== 4. BOOLEAN 类型必须返回布尔值 ==========
+// return true;  或  return false;
+
+// ========== 5. SWITCH 类型必须返回分支标识 ==========
+// return 'BRANCH_A';  或  return 'DEFAULT';
+
+// ========== 6. 日志输出 (可选) ==========
+// LogUtils.infoRule('处理完成: userId=' + userId);
+```
+
+### 6.2 组件类型约束
+
+#### SCRIPT 类型
+
+```javascript
+// 无返回值要求，通过 flowContext 传递数据
+userId = flowContext.getString('userId');
+// ... 业务处理 ...
+flowContext.setData('result', processResult);
+// 不需要 return
+```
+
+#### BOOLEAN 类型
+
+```javascript
+// 必须返回 true 或 false
+age = flowContext.getInt('age', 0);
+isValid = age >= 18;
+flowContext.setData('isAdult', isValid);
+return isValid;  // 必须返回布尔值
+```
+
+#### SWITCH 类型
+
+```javascript
+// 必须返回分支标识字符串
+orderType = flowContext.getString('orderType');
+if ('VIP'.equals(orderType)) {
+    return 'VIP_PROCESS';
+} else if ('NORMAL'.equals(orderType)) {
+    return 'NORMAL_PROCESS';
+}
+return 'DEFAULT';  // 默认分支
+```
+
+### 6.3 最佳实践
+
+| 原则 | 说明 | 示例 |
+|------|------|------|
+| **单一职责** | 每个组件只做一件事 | `validate_age` 只验证年龄 |
+| **幂等性** | 同样输入产生同样输出 | 避免依赖外部可变状态 |
+| **显式契约** | 明确定义 inputs/outputs | 便于理解和验证 |
+| **防御性编程** | 使用带默认值的 getter | `getInt('key', 0)` |
+| **日志可追溯** | 关键步骤记录日志 | `LogUtils.infoRule(...)` |
+
+---
+
+## 七、扩展指南
+
+### 7.1 接入新业务领域
 
 ```java
-@Service
-public class FlowConvertService {
+/**
+ * 步骤 1: 定义业务领域的组件分类
+ */
+public class OrderDomainCategories {
+    public static final String ORDER_VALIDATE = "订单验证";
+    public static final String ORDER_PROCESS = "订单处理";
+    public static final String ORDER_NOTIFY = "订单通知";
+}
+
+/**
+ * 步骤 2: 创建业务组件
+ */
+QLComponent validateStock = QLComponent.builder()
+    .componentId("validate_stock")
+    .componentName("库存验证")
+    .category(OrderDomainCategories.ORDER_VALIDATE)
+    .componentType(ComponentType.BOOLEAN)
+    .script("skuId = flowContext.getString('skuId');\n" +
+            "quantity = flowContext.getInt('quantity', 1);\n" +
+            "// 调用库存服务验证\n" +
+            "stockService = flowContext.getData('stockService');\n" +
+            "hasStock = stockService.checkStock(skuId, quantity);\n" +
+            "flowContext.setData('hasStock', hasStock);\n" +
+            "return hasStock;")
+    .inputs(Arrays.asList(
+        ParameterDefinition.builder().name("skuId").type("String").required(true).build(),
+        ParameterDefinition.builder().name("quantity").type("Integer").defaultValue(1).build()
+    ))
+    .outputs(Arrays.asList(
+        ParameterDefinition.builder().name("hasStock").type("Boolean").build()
+    ))
+    .build();
+
+/**
+ * 步骤 3: 注册组件
+ */
+componentService.createComponent(validateStock);
+
+/**
+ * 步骤 4: 设计流程编排
+ */
+CmpProperty orderFlow = CmpProperty.builder()
+    .type("THEN")
+    .children(Arrays.asList(
+        CmpProperty.builder().componentRef("validate_stock").build(),
+        CmpProperty.builder()
+            .type("IF")
+            .condition(CmpProperty.builder().componentRef("validate_stock").build())
+            .children(Arrays.asList(
+                CmpProperty.builder().componentRef("process_order").build(),
+                CmpProperty.builder().componentRef("notify_no_stock").build()
+            ))
+            .build()
+    ))
+    .build();
+
+/**
+ * 步骤 5: 注册并执行流程
+ */
+FlowDesign flow = FlowDesign.builder()
+    .flowId("order_create")
+    .flowName("创建订单")
+    .root(orderFlow)
+    .build();
+
+flowService.createFlow(flow);
+executeService.executeFlow("order_create", params);
+```
+
+### 7.2 自定义上下文服务注入
+
+```java
+/**
+ * 将业务服务注入到 FlowContext，供组件脚本调用
+ */
+@Component
+public class FlowContextInitializer {
 
     @Autowired
-    private QLComponentRepository componentRepo;
+    private StockService stockService;
 
-    /**
-     * 将编排 JSON 转换为 LiteFlow 配置
-     */
-    public ConvertResult convert(FlowDesign flowDesign) {
-        ConvertResult result = new ConvertResult();
-        result.setFlowId(flowDesign.getFlowId());
-        result.setChainName(flowDesign.getFlowId());
+    @Autowired
+    private NotifyService notifyService;
 
-        // 1. 收集所有使用的组件
-        Set<String> componentIds = collectComponentIds(flowDesign.getRoot());
+    public void initContext(FlowContext context) {
+        // 注入业务服务
+        context.setData("stockService", stockService);
+        context.setData("notifyService", notifyService);
 
-        // 2. 加载组件定义，生成 LiteFlow 节点
-        List<NodeDefinition> nodes = new ArrayList<>();
-        for (String componentId : componentIds) {
-            QLComponent component = componentRepo.findById(componentId)
-                .orElseThrow(() -> new BusinessException("组件不存在: " + componentId));
-
-            nodes.add(NodeDefinition.builder()
-                .nodeId(componentId)
-                .nodeName(component.getComponentName())
-                .nodeType(component.toLiteFlowNodeType())
-                .language(component.getLanguage())
-                .script(component.getScript())
-                .build());
-        }
-        result.setNodes(nodes);
-
-        // 3. 递归生成 EL 表达式
-        String el = generateEL(flowDesign.getRoot());
-        result.setEl(el);
-
-        return result;
-    }
-
-    /**
-     * 递归生成 EL 表达式
-     */
-    private String generateEL(FlowNode node) {
-        switch (node.getType().toUpperCase()) {
-            case "THEN":
-                return "THEN(" + childrenToEL(node.getChildren()) + ")";
-
-            case "WHEN":
-                return "WHEN(" + childrenToEL(node.getChildren()) + ")";
-
-            case "IF":
-                String condition = generateEL(node.getCondition());
-                List<FlowNode> children = node.getChildren();
-                if (children.size() == 1) {
-                    return "IF(" + condition + ", " + generateEL(children.get(0)) + ")";
-                } else {
-                    return "IF(" + condition + ", " + generateEL(children.get(0))
-                         + ", " + generateEL(children.get(1)) + ")";
-                }
-
-            case "SWITCH":
-                String switchCond = generateEL(node.getCondition());
-                String branches = node.getChildren().stream()
-                    .map(this::generateEL)
-                    .collect(Collectors.joining(", "));
-                String branchIds = node.getChildren().stream()
-                    .map(n -> "'" + n.getProperties().get("branch") + "'")
-                    .collect(Collectors.joining(", "));
-                return "SWITCH(" + switchCond + ").to(" + branches + ").id(" + branchIds + ")";
-
-            case "COMPONENT":
-            default:
-                return node.getComponentRef() != null ? node.getComponentRef() : node.getId();
-        }
+        // 注入工具类
+        context.setData("dateUtils", new DateUtils());
+        context.setData("jsonUtils", new JsonUtils());
     }
 }
 ```
 
----
+### 7.3 组件脚本中使用注入的服务
 
-## 七、实施计划
+```javascript
+// 获取注入的服务
+stockService = flowContext.getData('stockService');
+notifyService = flowContext.getData('notifyService');
 
-### 第一阶段：后端核心功能 (1-2周)
+// 调用服务方法
+skuId = flowContext.getString('skuId');
+hasStock = stockService.checkStock(skuId, 1);
 
-1. **组件模型与存储**
-   - [ ] QLComponent 实体类
-   - [ ] 组件 Repository
-   - [ ] 组件 CRUD Service
+if (!hasStock) {
+    notifyService.sendAlert('库存不足: ' + skuId);
+}
 
-2. **流程转换服务**
-   - [ ] JSON → LiteFlow 转换器
-   - [ ] EL 表达式生成器
-   - [ ] 流程验证器
-
-3. **流程部署服务**
-   - [ ] 流程部署/卸载
-   - [ ] 热更新支持
-
-### 第二阶段：边缘设备组件迁移 (2周)
-
-1. **基础组件迁移**
-   - [ ] 5 个基础组件
-   - [ ] 8 个状态检查组件
-   - [ ] 5 个路由组件
-
-2. **业务组件迁移**
-   - [ ] 20 个业务操作组件
-   - [ ] 单元测试覆盖
-
-### 第三阶段：流程迁移 (2周)
-
-1. **核心流程迁移**
-   - [ ] openDoor 流程
-   - [ ] onWatch/offWatch 流程
-   - [ ] switchPress 流程
-   - [ ] blueTooth 流程
-
-2. **其他流程迁移**
-   - [ ] microwaveSense 流程
-   - [ ] netStatusCheck 流程
-   - [ ] forceLock 流程
-   - [ ] 其他 22 个流程
-
-### 第四阶段：前端与优化 (1-2周)
-
-1. **前端开发**
-   - [ ] 组件设计器
-   - [ ] 编排器集成
-   - [ ] 智能分支处理
-
-2. **性能优化**
-   - [ ] 组件缓存
-   - [ ] 流程缓存
-   - [ ] 执行追踪
+flowContext.setData('hasStock', hasStock);
+return hasStock;
+```
 
 ---
 
-## 八、总结
+## 八、与 liteflow-editor-server 集成
 
-本方案基于边缘设备的实际规则场景，通过将 **QLExpress 脚本封装为 38 个可复用组件**，结合 **LiteFlow 的可视化编排能力**，实现了：
+### 8.1 数据模型映射
 
-1. **组件化**：38 个组件覆盖基础、状态检查、路由、门操作、音频、通信 6 大类
-2. **可视化**：29 个规则流程可通过拖拽组件快速构建
-3. **智能分支**：Switch 组件（蓝牙命令5分支、开门方式8分支等）自动创建对应分支
-4. **高复用**：checkWatchStatus 等组件被 18+ 个流程复用
-5. **动态化**：支持运行时热更新组件和流程
+| liteflow-editor-server | 本项目 | 说明 |
+|------------------------|--------|------|
+| `CmpProperty` | 直接复用 | 可视化编排树结构 |
+| `CmpProperty.id` | `QLComponent.componentId` | 节点引用组件 |
+| `ELInfo` | 直接复用 | EL 表达式容器 |
+| `ChainInfo` | 扩展 | 增加组件脚本信息 |
 
-### 预期收益
+### 8.2 双向转换流程
 
-| 收益项 | 预期效果 |
-|--------|---------|
-| 开发效率 | 新规则开发时间减少 50%+ |
-| 维护成本 | 规则修改影响范围降低 70%+ |
-| 复用率 | 公共逻辑复用率提升到 60%+ |
-| 可读性 | 流程可视化，新人上手时间减少 60%+ |
-| 测试效率 | 组件独立测试，测试效率提升 40%+ |
+```
+前端可视化画布
+      │
+      ↓ (CmpProperty JSON)
+┌─────────────────────────────────────────────────────┐
+│            FlowConvertService.generateEL()          │
+│                                                     │
+│  CmpProperty (树结构)  ──→  LiteFlow EL 表达式      │
+│                                                     │
+│  示例:                                              │
+│  {                           THEN(                  │
+│    "type": "THEN",             init,                │
+│    "children": [               IF(checkAge,         │
+│      {"componentRef":"init"},    processAdult,      │
+│      {"type":"IF", ...}          processMinor       │
+│    ]                           )                    │
+│  }                           )                      │
+└─────────────────────────────────────────────────────┘
+      │
+      ↓ (EL 表达式)
+┌─────────────────────────────────────────────────────┐
+│         LiteFlowDynamicService.addOrUpdateChain()   │
+│                                                     │
+│  1. 解析 EL 表达式                                  │
+│  2. 加载组件脚本为 ScriptNode                       │
+│  3. 构建 Chain                                      │
+└─────────────────────────────────────────────────────┘
+      │
+      ↓
+   LiteFlow 执行引擎
+```
+
+---
+
+## 九、配置参考
+
+### 9.1 Spring Boot 配置
+
+```yaml
+# application.yml
+server:
+  port: 8080
+
+spring:
+  application:
+    name: qlexpress-liteflow-platform
+
+# LiteFlow 配置
+liteflow:
+  # 启用脚本支持
+  script-enable: true
+  # 脚本语言
+  script-language: qlexpress
+  # 打印执行日志
+  print-execution-log: true
+  # 监控配置
+  monitor:
+    enable-log: true
+    period: 300000ms
+  # 线程池配置 (WHEN 并行执行)
+  when-max-workers: 16
+  when-queue-limit: 512
+```
+
+### 9.2 Maven 依赖
+
+```xml
+<!-- QLExpress 4 -->
+<dependency>
+    <groupId>com.alibaba</groupId>
+    <artifactId>qlexpress4</artifactId>
+    <version>4.0.7</version>
+</dependency>
+
+<!-- LiteFlow -->
+<dependency>
+    <groupId>com.yomahub</groupId>
+    <artifactId>liteflow-spring-boot-starter</artifactId>
+    <version>2.15.2</version>
+</dependency>
+
+<!-- LiteFlow QLExpress 脚本支持 -->
+<dependency>
+    <groupId>com.yomahub</groupId>
+    <artifactId>liteflow-script-qlexpress</artifactId>
+    <version>2.15.2</version>
+</dependency>
+```
+
+---
+
+## 十、总结
+
+本方案提供了一个**通用的组件化流程编排框架**，具有以下特点：
+
+### 核心优势
+
+| 特性 | 描述 |
+|------|------|
+| **业务无关** | 框架层不包含任何业务逻辑，所有业务通过组件动态注入 |
+| **高度可扩展** | 新业务通过注册组件接入，无需修改核心代码 |
+| **可视化编排** | 支持前端拖拽式流程设计，自动生成 EL 表达式 |
+| **热更新** | 支持运行时动态加载、更新组件和流程 |
+| **类型安全** | 通过 FlowContext 提供类型安全的数据存取 |
+| **完整追踪** | 提供详细的执行追踪信息，便于调试和监控 |
+
+### 适用场景
+
+- **规则引擎**：复杂业务规则的可视化编排
+- **流程编排**：多步骤业务流程的定义和执行
+- **IoT 设备控制**：设备指令的组合编排
+- **审批流程**：多条件分支的审批流
+- **风控规则**：多维度风险评估规则
+- **营销活动**：促销规则的灵活配置
+
+### 后续演进方向
+
+1. **版本管理**：组件和流程的版本控制、回滚能力
+2. **灰度发布**：支持流程的灰度发布和 A/B 测试
+3. **监控告警**：执行耗时、错误率的监控和告警
+4. **权限控制**：组件和流程的访问权限管理
+5. **性能优化**：组件脚本预编译、结果缓存
