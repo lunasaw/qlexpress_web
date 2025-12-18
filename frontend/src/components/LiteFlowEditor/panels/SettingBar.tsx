@@ -17,6 +17,8 @@ interface SettingBarProps {
   onDeleteNode?: (nodeId: string) => void;
   /** 复制节点 */
   onCopyNode?: (nodeId: string) => void;
+  /** 自定义样式 */
+  style?: React.CSSProperties;
 }
 
 /**
@@ -48,6 +50,7 @@ const SettingBar: React.FC<SettingBarProps> = ({
   onNodeDataChange,
   onDeleteNode,
   onCopyNode,
+  style,
 }) => {
   const [form] = Form.useForm();
 
@@ -241,7 +244,7 @@ const SettingBar: React.FC<SettingBarProps> = ({
   // 无选中节点时显示空状态
   if (!selectedNode) {
     return (
-      <div className="liteflow-setting-bar">
+      <div className="liteflow-setting-bar" style={style}>
         <div className="setting-bar-header">
           <span>属性配置</span>
         </div>
@@ -266,7 +269,7 @@ const SettingBar: React.FC<SettingBarProps> = ({
   ];
 
   return (
-    <div className="liteflow-setting-bar">
+    <div className="liteflow-setting-bar" style={style}>
       <div className="setting-bar-header">
         <span>属性配置</span>
         <Space>

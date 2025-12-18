@@ -215,4 +215,3 @@ export function createNotOperator(parent?: ELNode, operand?: ELNode): NotOperato
   return operator;
 }
 
-export { AndOperator, OrOperator, NotOperator };

@@ -173,3 +173,37 @@ export interface FlowStatusInfo {
   chainName?: string;
   nodeCount?: number;
 }
+
+/**
+ * 流程列表数据 - 后端分页返回格式
+ */
+export interface FlowListData {
+  flows: FlowDesign[];
+  categories: string[];
+  categoryStats: Record<string, number>;
+  total: number;
+  page?: number;
+  size?: number;
+}
+
+/**
+ * 流程筛选条件
+ */
+export interface FlowFilter {
+  category?: string;
+  deployStatus?: DeployStatus;
+  keyword?: string;
+  enabled?: boolean;
+}
+
+/**
+ * 流程统计信息
+ */
+export interface FlowStats {
+  total: number;
+  deployed: number;
+  notDeployed: number;
+  modified: number;
+  failed: number;
+  categoryStats: Record<string, number>;
+}

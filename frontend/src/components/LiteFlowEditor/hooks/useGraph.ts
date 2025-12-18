@@ -6,6 +6,7 @@ import { Keyboard } from '@antv/x6-plugin-keyboard';
 import { History } from '@antv/x6-plugin-history';
 import { Clipboard } from '@antv/x6-plugin-clipboard';
 import { Scroller } from '@antv/x6-plugin-scroller';
+import { Export } from '@antv/x6-plugin-export';
 import { registerNodes } from '../cells';
 import { useFlowStore } from '../../../stores';
 
@@ -29,13 +30,17 @@ export interface UseGraphOptions {
  */
 export function useGraph(options: UseGraphOptions) {
   const graphRef = useRef<Graph | null>(null);
-  const { setGraph, selectNode, rootNode } = useFlowStore();
+  const { setGraph } = useFlowStore();
+
+  // 保存回调函数的引用，避免重新创建 Graph
+  const callbacksRef = useRef(options);
+  callbacksRef.current = options;
 
   /**
    * 初始化 Graph
    */
-  const initGraph = useCallback(() => {
-    if (!options.container || graphRef.current) return;
+  const initGraph = useCallback((container: HTMLElement) => {
+    if (!container || graphRef.current) return;
 
     // 确保节点已注���
     if (!nodesRegistered) {
@@ -44,9 +49,9 @@ export function useGraph(options: UseGraphOptions) {
     }
 
     const graph = new Graph({
-      container: options.container,
-      width: options.width || options.container.clientWidth,
-      height: options.height || options.container.clientHeight,
+      container: container,
+      width: options.width || container.clientWidth,
+      height: options.height || container.clientHeight,
       grid: {
         visible: true,
         type: 'doubleMesh',
@@ -117,11 +122,6 @@ export function useGraph(options: UseGraphOptions) {
         minScale: 0.5,
         maxScale: 2,
       },
-      selecting: {
-        enabled: true,
-        rubberband: true,
-        showNodeSelectionBox: true,
-      },
       panning: {
         enabled: true,
         modifiers: 'shift',
@@ -172,18 +172,20 @@ export function useGraph(options: UseGraphOptions) {
       })
     );
 
-    // 绑定事件
+    graph.use(new Export());
+
+    // 绑定事件 - 使用 callbacksRef 获取最新的回调
     graph.on('node:click', ({ node }) => {
-      options.onNodeClick?.(node.id);
+      callbacksRef.current.onNodeClick?.(node.id);
     });
 
     graph.on('node:dblclick', ({ node }) => {
-      options.onNodeDoubleClick?.(node.id);
+      callbacksRef.current.onNodeDoubleClick?.(node.id);
     });
 
     graph.on('selection:changed', ({ selected }) => {
       const selectedIds = selected.map((cell) => cell.id);
-      options.onSelectionChange?.(selectedIds);
+      callbacksRef.current.onSelectionChange?.(selectedIds);
     });
 
     // 快捷键
@@ -238,7 +240,7 @@ export function useGraph(options: UseGraphOptions) {
     setGraph(graph);
 
     return graph;
-  }, [options.container, options.width, options.height, setGraph]);
+  }, [options.width, options.height, setGraph]);
 
   /**
    * 销毁 Graph
@@ -315,45 +317,43 @@ export function useGraph(options: UseGraphOptions) {
   /**
    * 导出为 PNG
    */
-  const exportPNG = useCallback(async (fileName = 'flow') => {
+  const exportPNG = useCallback((fileName = 'flow') => {
     if (!graphRef.current) return;
 
-    const dataUri = await graphRef.current.toPNG({
+    graphRef.current.toPNG((dataUri: string) => {
+      const link = document.createElement('a');
+      link.download = `${fileName}.png`;
+      link.href = dataUri;
+      link.click();
+    }, {
       padding: 20,
       backgroundColor: '#fff',
     });
-
-    const link = document.createElement('a');
-    link.download = `${fileName}.png`;
-    link.href = dataUri;
-    link.click();
   }, []);
 
   /**
    * 导出为 SVG
    */
-  const exportSVG = useCallback(async (fileName = 'flow') => {
+  const exportSVG = useCallback((fileName = 'flow') => {
     if (!graphRef.current) return;
 
-    const svg = await graphRef.current.toSVG({
-      preserveDimensions: true,
+    graphRef.current.toSVG((svg: string) => {
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.download = `${fileName}.svg`;
+      link.href = url;
+      link.click();
+
+      URL.revokeObjectURL(url);
     });
-
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.download = `${fileName}.svg`;
-    link.href = url;
-    link.click();
-
-    URL.revokeObjectURL(url);
   }, []);
 
-  // 初始化
+  // 初始化 - 当 container 可用时初始化 Graph
   useEffect(() => {
     if (options.container) {
-      initGraph();
+      initGraph(options.container);
     }
 
     return () => {

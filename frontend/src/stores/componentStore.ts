@@ -100,17 +100,20 @@ export const useComponentStore = create<ComponentState & ComponentActions>((set,
       const { data: response } = await componentApi.list(queryParams);
       const result = response.data;
 
+      // 后端返回 ComponentListData 结构
       set({
-        components: result.content,
+        components: result?.components || [],
+        categories: result?.categories || [],
+        categoryStats: result?.categoryStats || {},
         pagination: {
           ...pagination,
-          total: result.total,
+          total: result?.total || 0,
         },
         loading: false,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : '获取组件列表失败';
-      set({ error: message, loading: false });
+      set({ error: message, loading: false, components: [] });
     }
   },
 
@@ -120,12 +123,12 @@ export const useComponentStore = create<ComponentState & ComponentActions>((set,
     try {
       const { data: response } = await componentApi.search(keyword);
       set({
-        components: response.data,
+        components: response.data || [],
         loading: false,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : '搜索组件失败';
-      set({ error: message, loading: false });
+      set({ error: message, loading: false, components: [] });
     }
   },
 

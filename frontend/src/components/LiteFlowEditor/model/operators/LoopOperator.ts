@@ -345,4 +345,3 @@ export function createIteratorOperator(
   return operator;
 }
 
-export { ForOperator, WhileOperator, IteratorOperator };

@@ -14,8 +14,6 @@ import type { QLComponent } from '../../../types/component';
 import { nodeGroups } from '../model/nodeGroups';
 import './SideBar.css';
 
-const { Panel } = Collapse;
-
 interface SideBarProps {
   /** 开始拖拽组件 */
   onDragStart?: (
@@ -26,6 +24,8 @@ interface SideBarProps {
   ) => void;
   /** 开始拖拽控制节点 */
   onDragControlNode?: (type: ConditionTypeEnum, label: string, e: React.MouseEvent) => void;
+  /** 自定义样式 */
+  style?: React.CSSProperties;
 }
 
 /**
@@ -73,7 +73,7 @@ function getControlNodeIcon(type: ConditionTypeEnum): React.ReactNode {
 /**
  * 侧边栏 - 组件面板
  */
-const SideBar: React.FC<SideBarProps> = ({ onDragStart, onDragControlNode }) => {
+const SideBar: React.FC<SideBarProps> = ({ onDragStart, onDragControlNode, style }) => {
   const { components, loading, fetchComponents, searchComponents } = useComponentStore();
   const [searchKeyword, setSearchKeyword] = useState('');
   const [activeKeys, setActiveKeys] = useState<string[]>(['control', 'components']);
@@ -99,7 +99,7 @@ const SideBar: React.FC<SideBarProps> = ({ onDragStart, onDragControlNode }) => 
    */
   const handleDragStart = (component: QLComponent, e: React.MouseEvent) => {
     e.preventDefault();
-    onDragStart?.(component.componentId, component.name, component.componentType, e);
+    onDragStart?.(component.componentId, component.componentName, component.componentType, e);
   };
 
   /**
@@ -149,23 +149,26 @@ const SideBar: React.FC<SideBarProps> = ({ onDragStart, onDragControlNode }) => 
       );
     }
 
-    if (components.length === 0) {
+    // 安全检查：确保 components 是数组
+    const componentList = Array.isArray(components) ? components : [];
+
+    if (componentList.length === 0) {
       return <Empty description="暂无组件" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
     }
 
     return (
       <List
         size="small"
-        dataSource={components}
+        dataSource={componentList}
         renderItem={(component) => (
           <List.Item
             className="component-item"
             onMouseDown={(e) => handleDragStart(component, e)}
           >
             <div className="component-info">
-              <div className="component-name">{component.name}</div>
+              <div className="component-name">{component.componentName}</div>
               <div className="component-meta">
-                <Tag color={getComponentTypeColor(component.componentType)} size="small">
+                <Tag color={getComponentTypeColor(component.componentType)}>
                   {component.componentType}
                 </Tag>
                 {component.category && (
@@ -179,8 +182,22 @@ const SideBar: React.FC<SideBarProps> = ({ onDragStart, onDragControlNode }) => 
     );
   };
 
+  // Collapse items 配置 (使用新 API)
+  const collapseItems = [
+    {
+      key: 'control',
+      label: '控制节点',
+      children: <div className="control-nodes-container">{renderControlNodeGroups()}</div>,
+    },
+    {
+      key: 'components',
+      label: '业务组件',
+      children: <div className="components-container">{renderComponentList()}</div>,
+    },
+  ];
+
   return (
-    <div className="liteflow-sidebar">
+    <div className="liteflow-sidebar" style={style}>
       <div className="sidebar-header">
         <Input
           placeholder="搜索组件..."
@@ -196,16 +213,9 @@ const SideBar: React.FC<SideBarProps> = ({ onDragStart, onDragControlNode }) => 
           activeKey={activeKeys}
           onChange={(keys) => setActiveKeys(keys as string[])}
           ghost
-          expandIconPosition="end"
-        >
-          <Panel header="控制节点" key="control">
-            <div className="control-nodes-container">{renderControlNodeGroups()}</div>
-          </Panel>
-
-          <Panel header="业务组件" key="components">
-            <div className="components-container">{renderComponentList()}</div>
-          </Panel>
-        </Collapse>
+          expandIconPlacement="end"
+          items={collapseItems}
+        />
       </div>
     </div>
   );

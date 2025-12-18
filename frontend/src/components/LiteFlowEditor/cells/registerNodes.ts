@@ -1,4 +1,4 @@
-import { Graph, Node } from '@antv/x6';
+import { Graph } from '@antv/x6';
 
 /**
  * 通用端口配置

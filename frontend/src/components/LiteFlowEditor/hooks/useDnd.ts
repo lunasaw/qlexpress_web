@@ -29,9 +29,7 @@ export interface UseDndOptions {
   enabled?: boolean;
   /** 拖拽时节点缩放比例 */
   scaled?: boolean;
-  /** 拖拽时是否显示节点动画 */
-  animation?: boolean;
-  /** 节��放置回调 */
+  /** 节点放置回调 */
   onNodeDropped?: (node: Node) => void;
 }
 
@@ -72,13 +70,13 @@ function getNodeShapeConfig(type: string): { shape: string; width: number; heigh
  */
 export function useDnd(graph: Graph | null, options: UseDndOptions = {}) {
   const dndRef = useRef<Dnd | null>(null);
-  const { enabled = true, scaled = false, animation = true, onNodeDropped } = options;
+  const { enabled = true, scaled = false, onNodeDropped } = options;
 
   /**
    * 初始化 Dnd 插件
    */
   const initDnd = useCallback(
-    (dndContainer: HTMLElement) => {
+    (_dndContainer: HTMLElement) => {
       if (!graph || !enabled) return null;
 
       // 如果已存在则先销毁
@@ -89,7 +87,6 @@ export function useDnd(graph: Graph | null, options: UseDndOptions = {}) {
       const dnd = new Dnd({
         target: graph,
         scaled,
-        animation,
         getDragNode: (node) => node.clone(),
         getDropNode: (node) => {
           const cloned = node.clone();
@@ -102,7 +99,7 @@ export function useDnd(graph: Graph | null, options: UseDndOptions = {}) {
       dndRef.current = dnd;
       return dnd;
     },
-    [graph, enabled, scaled, animation, onNodeDropped]
+    [graph, enabled, scaled, onNodeDropped]
   );
 
   /**

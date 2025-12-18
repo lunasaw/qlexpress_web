@@ -10,6 +10,8 @@ import type {
   FlowValidateResult,
   FlowStatusInfo,
   ELPreviewResult,
+  FlowListData,
+  FlowStats,
 } from '../types';
 
 /**
@@ -140,5 +142,75 @@ export const flowApi = {
    */
   getCategoryStats() {
     return request.get<Record<string, number>>('/api/flow/category/stats');
+  },
+
+  /**
+   * 获取流程列表 (包含分类信息)
+   */
+  listWithCategories(params?: FlowListParams) {
+    return request.get<FlowListData>('/api/flow/list', { params });
+  },
+
+  /**
+   * 获取流程统计
+   */
+  getStats() {
+    return request.get<FlowStats>('/api/flow/stats');
+  },
+
+  /**
+   * 批量删除流程
+   */
+  batchDelete(flowIds: string[]) {
+    return request.post('/api/flow/batch-delete', { flowIds });
+  },
+
+  /**
+   * 批量部署流程
+   */
+  batchDeploy(flowIds: string[]) {
+    return request.post('/api/flow/batch-deploy', { flowIds });
+  },
+
+  /**
+   * 批量卸载流程
+   */
+  batchUndeploy(flowIds: string[]) {
+    return request.post('/api/flow/batch-undeploy', { flowIds });
+  },
+
+  /**
+   * 复制流程
+   */
+  copy(flowId: string, newFlowId: string, newFlowName: string) {
+    return request.post<FlowDesign>(`/api/flow/${flowId}/copy`, { newFlowId, newFlowName });
+  },
+
+  /**
+   * 导出流程为 JSON
+   */
+  exportFlow(flowId: string) {
+    return request.get<FlowDesign>(`/api/flow/${flowId}/export`);
+  },
+
+  /**
+   * 批量导出流程
+   */
+  batchExport(flowIds: string[]) {
+    return request.post<FlowDesign[]>('/api/flow/batch-export', { flowIds });
+  },
+
+  /**
+   * 导入流程
+   */
+  importFlow(flowDesign: FlowRequest) {
+    return request.post<FlowDesign>('/api/flow/import', flowDesign);
+  },
+
+  /**
+   * 切换流程启用状态
+   */
+  toggleEnabled(flowId: string, enabled: boolean) {
+    return request.patch<FlowDesign>(`/api/flow/${flowId}/enabled`, { enabled });
   },
 };

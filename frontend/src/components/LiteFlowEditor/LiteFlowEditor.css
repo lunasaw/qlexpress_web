@@ -11,7 +11,7 @@
   flex: 1;
   display: flex;
   overflow: hidden;
-  /* 为底部预览面板留出空间 */
+  /* 为底部预览面板留出空间，由 JS 动态设置 */
   padding-bottom: 280px;
 }
 

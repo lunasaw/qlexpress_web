@@ -78,7 +78,7 @@ export class NodeOperator extends ELNode {
     ];
   }
 
-  toEL(prefix?: string): string {
+  toEL(_prefix?: string): string {
     const nodeId = this.componentRef || this.id;
     const modifiers = this.propertiesToEL();
     return `${nodeId}${modifiers}`;

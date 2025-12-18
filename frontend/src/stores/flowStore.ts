@@ -1,8 +1,10 @@
 import { create } from 'zustand';
-import type { Graph } from '@antv/x6';
-import type { CmpProperty, FlowDesign, FlowRequest } from '../types/flow';
+import type { Graph, Cell, Node } from '@antv/x6';
+import type { FlowRequest } from '../types/flow';
 import type { QLComponent } from '../types/component';
-import { ELNode, ELBuilder, ChainOperator } from '../components/LiteFlowEditor/model';
+import { ELNode, ELBuilder } from '../components/LiteFlowEditor/model';
+import { NodeOperator, ThenOperator, ChainOperator } from '../components/LiteFlowEditor/model/operators';
+import { ConditionTypeEnum } from '../types/enums';
 import { flowApi } from '../api/flow';
 
 interface FlowState {
@@ -35,9 +37,12 @@ interface FlowActions {
   // 流程操作
   newFlow: () => void;
   loadFlow: (flowId: string) => Promise<void>;
-  saveFlow: () => Promise<string>;
+  saveFlow: (newFlowId?: string) => Promise<string>;
   clearFlow: () => void;
   setFlowInfo: (info: { flowName?: string; flowDescription?: string; flowCategory?: string }) => void;
+
+  // Graph 到 ELNode 同步
+  buildELFromGraph: (chainName?: string) => ELNode | null;
 
   // 组件数据
   setComponents: (components: QLComponent[]) => void;
@@ -60,7 +65,7 @@ interface FlowActions {
   previewEL: () => Promise<string>;
 
   // 验证与部署
-  validateFlow: () => Promise<{ valid: boolean; errors: string[] }>;
+  validateFlow: (flowId?: string) => Promise<{ valid: boolean; errors: string[] }>;
   deployFlow: () => Promise<void>;
   executeFlow: (params?: Record<string, unknown>) => Promise<unknown>;
 }
@@ -127,16 +132,30 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
     }
   },
 
-  saveFlow: async () => {
-    const { flowId, flowName, flowDescription, flowCategory, rootNode } = get();
+  saveFlow: async (newFlowId?: string) => {
+    const { flowId: existingFlowId, flowName, flowDescription, flowCategory } = get();
+
+    // 使用传入的 flowId 或已存在的 flowId
+    const targetFlowId = newFlowId || existingFlowId;
+
+    if (!targetFlowId) {
+      throw new Error('流程ID不能为空');
+    }
+
+    // 先从 Graph 构建 ELNode，传入 flowId 作为 chainName
+    let rootNode = get().rootNode;
     if (!rootNode) {
-      throw new Error('流程为空');
+      rootNode = get().buildELFromGraph(targetFlowId);
+    }
+
+    if (!rootNode) {
+      throw new Error('流程为空，请先添加节点');
     }
 
     set({ loading: true, error: null });
     try {
       const flowRequest: FlowRequest = {
-        flowId: flowId || undefined,
+        flowId: targetFlowId,
         flowName,
         description: flowDescription,
         category: flowCategory,
@@ -145,16 +164,18 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
 
       let savedFlowId: string;
 
-      if (flowId) {
-        await flowApi.update(flowId, flowRequest);
-        savedFlowId = flowId;
+      if (existingFlowId) {
+        // 更新已存在的流程
+        await flowApi.update(existingFlowId, flowRequest);
+        savedFlowId = existingFlowId;
       } else {
+        // 创建新流程
         const { data: response } = await flowApi.create(flowRequest);
         savedFlowId = response.data.flowId;
         set({ flowId: savedFlowId });
       }
 
-      set({ dirty: false, loading: false });
+      set({ dirty: false, loading: false, rootNode });
       return savedFlowId;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : '保存流程失败';
@@ -178,10 +199,10 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
   },
 
   setFlowInfo: (info) => {
-    set((state) => ({
+    set({
       ...info,
       dirty: true,
-    }));
+    });
   },
 
   // ===== 组件数据 =====
@@ -235,6 +256,79 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
     set({ graph });
   },
 
+  /**
+   * 从 X6 Graph 构建 ELNode 树
+   * 将画布上的节点转换为 ELNode 模型
+   */
+  buildELFromGraph: (chainName?: string) => {
+    const { graph, components, flowId } = get();
+    if (!graph) return null;
+
+    // 获取所有节点 (不包括边)
+    const nodes = graph.getNodes();
+    if (nodes.length === 0) return null;
+
+    // 创建组件映射
+    const componentMap = new Map<string, QLComponent>();
+    components.forEach((comp) => componentMap.set(comp.componentId, comp));
+
+    // 创建 Chain 作为根节点，使用 flowId 或传入的 chainName 作为标识
+    const chain = new ChainOperator(undefined, chainName || flowId || undefined);
+
+    // 简化处理：将所有节点按 Y 坐标排序，放入 THEN 序列中
+    // TODO: 后续需要根据边的连接关系构建更复杂的结构
+    const sortedNodes = [...nodes].sort((a, b) => {
+      const posA = a.getPosition();
+      const posB = b.getPosition();
+      // 先按 Y 排序，再按 X 排序
+      if (Math.abs(posA.y - posB.y) < 50) {
+        return posA.x - posB.x;
+      }
+      return posA.y - posB.y;
+    });
+
+    // 遍历节点，根据类型创建对应的 ELNode
+    sortedNodes.forEach((x6Node: Node) => {
+      const data = x6Node.getData() || {};
+      const nodeType = data.type || data.nodeType;
+
+      // 根据节点类型创建 ELNode
+      if (nodeType === 'NODE' || data.componentId) {
+        // 组件节点
+        const componentId = data.componentId;
+        const componentData = componentId ? componentMap.get(componentId) : undefined;
+        const elNode = new NodeOperator(chain, componentId, componentData);
+        chain.appendChild(elNode);
+      } else if (nodeType === ConditionTypeEnum.THEN || nodeType === 'THEN') {
+        // THEN 节点 - 暂时跳过，简化处理
+        const thenNode = new ThenOperator(chain);
+        chain.appendChild(thenNode);
+      } else if (nodeType === ConditionTypeEnum.WHEN || nodeType === 'WHEN') {
+        // WHEN 节点 - 暂时作为叶子节点处理
+        const elNode = new NodeOperator(chain, x6Node.id);
+        elNode.type = 'WHEN';
+        chain.appendChild(elNode);
+      } else if (
+        nodeType === ConditionTypeEnum.IF ||
+        nodeType === ConditionTypeEnum.SWITCH ||
+        nodeType === ConditionTypeEnum.FOR ||
+        nodeType === ConditionTypeEnum.WHILE
+      ) {
+        // 控制节点 - 简化处理为叶子节点
+        const elNode = new NodeOperator(chain, x6Node.id);
+        elNode.type = nodeType;
+        chain.appendChild(elNode);
+      } else {
+        // 其他节点作为普通组件节点
+        const label = x6Node.getAttrByPath('label/text') as string || x6Node.id;
+        const elNode = new NodeOperator(chain, label);
+        chain.appendChild(elNode);
+      }
+    });
+
+    return chain;
+  },
+
   syncToGraph: () => {
     const { graph, rootNode } = get();
     if (!graph || !rootNode) return;
@@ -243,10 +337,12 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
     graph.clearCells();
 
     // 从 ELNode 生成 X6 cells
-    const cells = rootNode.toCells();
+    const cells = rootNode.toCells() as Cell[];
 
     // 添加到画布
-    graph.addCell(cells);
+    if (cells.length > 0) {
+      graph.addCell(cells);
+    }
 
     // 自动布局
     get().refreshLayout();
@@ -291,14 +387,34 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
   },
 
   // ===== 验证与部署 =====
-  validateFlow: async () => {
-    const { rootNode, flowName } = get();
+  validateFlow: async (newFlowId?: string) => {
+    const { flowId: existingFlowId, flowName } = get();
+
+    // 使用传入的 flowId 或已存在的 flowId
+    const targetFlowId = newFlowId || existingFlowId;
+
+    // 先从 Graph 构建 ELNode，传入 flowId 作为 chainName
+    let rootNode = get().rootNode;
     if (!rootNode) {
-      return { valid: false, errors: ['流程为空'] };
+      rootNode = get().buildELFromGraph(targetFlowId || undefined);
+    }
+
+    if (!rootNode) {
+      return { valid: false, errors: ['流程为空，请先添加节点'] };
+    }
+
+    // 如果没有 flowId，跳过后端验证，只做本地验证
+    if (!targetFlowId) {
+      // 简单的本地验证：至少有一个子节点
+      if (rootNode.children.length === 0) {
+        return { valid: false, errors: ['流程至少需要一个节点'] };
+      }
+      return { valid: true, errors: [] };
     }
 
     try {
       const flowRequest: FlowRequest = {
+        flowId: targetFlowId,
         flowName,
         root: rootNode.toJSON(),
       };

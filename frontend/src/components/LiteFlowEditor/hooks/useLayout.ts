@@ -12,8 +12,6 @@ export interface LayoutOptions {
   nodesep?: number;
   /** 层级之间的垂直间距 */
   ranksep?: number;
-  /** 边的标签位置 */
-  edgelabelpos?: 'l' | 'c' | 'r';
   /** 是否居中对齐 */
   align?: 'UL' | 'UR' | 'DL' | 'DR';
 }
@@ -25,7 +23,6 @@ const defaultLayoutOptions: LayoutOptions = {
   rankdir: 'TB',
   nodesep: 50,
   ranksep: 80,
-  edgelabelpos: 'c',
   align: 'UL',
 };
 
@@ -54,7 +51,6 @@ export function useLayout(graph: Graph | null) {
         rankdir: layoutOptions.rankdir,
         nodesep: layoutOptions.nodesep,
         ranksep: layoutOptions.ranksep,
-        edgelabelpos: layoutOptions.edgelabelpos,
         align: layoutOptions.align,
       });
       g.setDefaultEdgeLabel(() => ({}));
@@ -175,7 +171,6 @@ export function useLayout(graph: Graph | null) {
         rankdir: layoutOptions.rankdir,
         nodesep: layoutOptions.nodesep,
         ranksep: layoutOptions.ranksep,
-        edgelabelpos: layoutOptions.edgelabelpos,
         align: layoutOptions.align,
       });
       g.setDefaultEdgeLabel(() => ({}));

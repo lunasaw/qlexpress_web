@@ -23,6 +23,18 @@ export interface PageData<T> {
 }
 
 /**
+ * 组件列表响应 - 后端返回的特殊结构
+ */
+export interface ComponentListData<T> {
+  components: T[];
+  categories: string[];
+  categoryStats: Record<string, number>;
+  total: number;
+  page?: number;
+  size?: number;
+}
+
+/**
  * 执行选项
  */
 export interface ExecuteOptions {
@@ -234,4 +246,38 @@ export interface ExecuteELRequest {
 export interface FlowDefinitionRequest {
   nodes: ScriptNodeRequest[];
   chains: ChainRequest[];
+}
+
+/**
+ * 执行轨迹 - 用于脚本执行器展示
+ */
+export interface ExecuteTrace {
+  /** 表达式/步骤 */
+  expression?: string;
+  /** 执行结果 */
+  result?: unknown;
+  /** 错误信息 */
+  error?: string;
+  /** 耗时 (ms) */
+  duration?: number;
+}
+
+/**
+ * 执行结果 - 用于脚本执行器展示
+ */
+export interface ExecuteResult {
+  /** 是否成功 */
+  success: boolean;
+  /** 执行结果 */
+  result?: unknown;
+  /** 输出上下文 */
+  context?: Record<string, unknown>;
+  /** 错误信息 */
+  errorMessage?: string;
+  /** 堆栈信息 */
+  stackTrace?: string;
+  /** 执行耗时 (ms) */
+  duration?: number;
+  /** 执行轨迹 */
+  trace?: ExecuteTrace[];
 }

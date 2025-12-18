@@ -1,11 +1,14 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { message } from 'antd';
+import { message, Modal, Form, Input } from 'antd';
 import type { Node } from '@antv/x6';
 import { useGraph, useLayout, useDnd } from './hooks';
 import { SideBar, ToolBar, SettingBar, ELPreview } from './panels';
+import { Resizer } from './components';
 import { useFlowStore } from '../../stores';
 import { ConditionTypeEnum } from '../../types/enums';
 import './LiteFlowEditor.css';
+
+const { TextArea } = Input;
 
 interface LiteFlowEditorProps {
   /** 流程ID */
@@ -30,14 +33,27 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const dndContainerRef = useRef<HTMLDivElement>(null);
 
+  // 使用 state 跟踪容器元素，确保 Graph 在 DOM 挂载后初始化
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [saveForm] = Form.useForm();
+
+  // 面板尺寸状态
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [settingBarWidth, setSettingBarWidth] = useState(300);
+  const [previewHeight, setPreviewHeight] = useState(280);
 
   const {
+    flowId: storeFlowId,
+    flowName,
+    flowDescription,
     rootNode,
     elExpression,
     loadFlow,
@@ -45,13 +61,20 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
     generateEL,
     validateFlow,
     deployFlow,
+    setFlowInfo,
   } = useFlowStore();
 
-  // 初始化 Graph
+  // 容器挂载后更新 state，触发 useGraph 初始化
+  useEffect(() => {
+    if (containerRef.current) {
+      setContainer(containerRef.current);
+    }
+  }, []);
+
+  // 初始化 Graph - 使用 state 中的 container 确保 DOM 已挂载
   const {
     graph,
     fitView,
-    center,
     zoom,
     setZoom,
     getZoom,
@@ -60,7 +83,7 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
     exportPNG,
     exportSVG,
   } = useGraph({
-    container: containerRef.current,
+    container,
     onNodeClick: (nodeId) => {
       if (graph) {
         const node = graph.getCellById(nodeId) as Node;
@@ -207,7 +230,7 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
         if (node) {
           node.setData(data);
           if (data.label) {
-            node.setAttrByPath('label', data.label);
+            node.setAttrByPath('label/text', data.label as string);
           }
         }
       }
@@ -279,27 +302,55 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
   }, [graph]);
 
   /**
-   * 保存流程
+   * 打开保存对话框
    */
-  const handleSave = useCallback(async () => {
-    setSaving(true);
+  const handleSave = useCallback(() => {
+    // 设置表单初始值
+    saveForm.setFieldsValue({
+      flowId: storeFlowId || `flow_${Date.now()}`,
+      flowName: flowName || '未命名流程',
+      description: flowDescription || '',
+    });
+    setSaveModalVisible(true);
+  }, [saveForm, storeFlowId, flowName, flowDescription]);
+
+  /**
+   * 确认保存
+   */
+  const handleSaveConfirm = useCallback(async () => {
     try {
-      // 验证流程
-      const validationResult = await validateFlow();
+      const values = await saveForm.validateFields();
+      const targetFlowId = values.flowId;
+
+      // 更新流程信息到 store
+      setFlowInfo({
+        flowName: values.flowName,
+        flowDescription: values.description,
+      });
+
+      setSaving(true);
+      setSaveModalVisible(false);
+
+      // 验证流程 - 传递 flowId
+      const validationResult = await validateFlow(targetFlowId);
       if (!validationResult.valid) {
         message.error(validationResult.errors?.[0] || '流程验证失败');
+        setSaving(false);
         return;
       }
 
-      await saveFlow();
+      // 保存时需要带上 flowId
+      await saveFlow(targetFlowId);
       message.success('保存成功');
       onSave?.();
     } catch (error) {
-      message.error('保存失败');
+      if (error instanceof Error) {
+        message.error(error.message || '保存失败');
+      }
     } finally {
       setSaving(false);
     }
-  }, [validateFlow, saveFlow, onSave]);
+  }, [saveForm, setFlowInfo, validateFlow, saveFlow, onSave]);
 
   /**
    * 执行流程
@@ -371,13 +422,23 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
         onExecute={handleExecute}
       />
 
-      <div className="liteflow-editor-body">
+      <div className="liteflow-editor-body" style={{ paddingBottom: previewHeight }}>
         {/* 左侧边栏 */}
         {!readonly && (
-          <SideBar
-            onDragStart={handleDragStart}
-            onDragControlNode={handleDragControlNode}
-          />
+          <>
+            <SideBar
+              onDragStart={handleDragStart}
+              onDragControlNode={handleDragControlNode}
+              style={{ width: sidebarWidth }}
+            />
+            <Resizer
+              direction="horizontal"
+              size={sidebarWidth}
+              minSize={200}
+              maxSize={500}
+              onResize={setSidebarWidth}
+            />
+          </>
         )}
 
         {/* 画布 */}
@@ -386,21 +447,80 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
         </div>
 
         {/* 右侧属性面板 */}
+        <Resizer
+          direction="horizontal"
+          size={settingBarWidth}
+          minSize={200}
+          maxSize={500}
+          onResize={setSettingBarWidth}
+          reverse
+        />
         <SettingBar
           selectedNode={selectedNode}
           onNodeDataChange={readonly ? undefined : handleNodeDataChange}
           onDeleteNode={readonly ? undefined : handleDeleteNode}
           onCopyNode={handleCopyNode}
+          style={{ width: settingBarWidth }}
         />
       </div>
 
       {/* EL 预览面板 */}
+      <div
+        className="preview-resizer-wrapper"
+        style={{ position: 'absolute', bottom: previewHeight, left: 0, right: 0, zIndex: 101 }}
+      >
+        <Resizer
+          direction="vertical"
+          size={previewHeight}
+          minSize={100}
+          maxSize={500}
+          onResize={setPreviewHeight}
+          reverse
+        />
+      </div>
       <ELPreview
         elExpression={elExpression}
         jsonStructure={rootNode ? JSON.stringify(rootNode.toJSON()) : ''}
         isValid={true}
         onRefresh={handleRefreshEL}
+        style={{ height: previewHeight, left: readonly ? 0 : sidebarWidth, right: settingBarWidth }}
       />
+
+      {/* 保存对话框 */}
+      <Modal
+        title="保存流程"
+        open={saveModalVisible}
+        onOk={handleSaveConfirm}
+        onCancel={() => setSaveModalVisible(false)}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={saveForm} layout="vertical">
+          <Form.Item
+            name="flowId"
+            label="流程ID"
+            rules={[
+              { required: true, message: '请输入流程ID' },
+              { pattern: /^[a-zA-Z][a-zA-Z0-9_]*$/, message: '只能包含字母、数字、下划线，且以字母开头' },
+            ]}
+          >
+            <Input placeholder="如: order_process" disabled={!!storeFlowId} />
+          </Form.Item>
+
+          <Form.Item
+            name="flowName"
+            label="流程名称"
+            rules={[{ required: true, message: '请输入流程名称' }]}
+          >
+            <Input placeholder="如: 订单处理流程" />
+          </Form.Item>
+
+          <Form.Item name="description" label="流程描述">
+            <TextArea rows={3} placeholder="请输入流程描述" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

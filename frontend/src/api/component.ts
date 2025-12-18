@@ -5,7 +5,7 @@ import type {
   ComponentListParams,
   ComponentTestRequest,
   ScriptValidateRequest,
-  PageData,
+  ComponentListData,
   ExecuteResponse,
   ValidateScriptResponse,
 } from '../types';
@@ -46,7 +46,7 @@ export const componentApi = {
    * 获取组件列表
    */
   list(params?: ComponentListParams) {
-    return request.get<PageData<QLComponent>>('/api/component/list', { params });
+    return request.get<ComponentListData<QLComponent>>('/api/component/list', { params });
   },
 
   /**

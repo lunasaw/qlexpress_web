@@ -24,6 +24,8 @@ interface ELPreviewProps {
   onRefresh?: () => void;
   /** 是否正在加载 */
   loading?: boolean;
+  /** 自定义样式 */
+  style?: React.CSSProperties;
 }
 
 /**
@@ -36,6 +38,7 @@ const ELPreview: React.FC<ELPreviewProps> = ({
   validationErrors = [],
   onRefresh,
   loading = false,
+  style,
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -211,7 +214,7 @@ const ELPreview: React.FC<ELPreviewProps> = ({
   ];
 
   return (
-    <div className={`liteflow-el-preview ${expanded ? 'expanded' : ''}`}>
+    <div className={`liteflow-el-preview ${expanded ? 'expanded' : ''}`} style={style}>
       <div className="el-preview-panel-header">
         <span>表达式预览</span>
         <Tooltip title={expanded ? '收起' : '展开'}>

@@ -1,0 +1,143 @@
+{
+  "components": [
+    {
+      "componentId": "openDoorHandler",
+      "componentName": "开门请求处理",
+      "description": "解析开门请求参数，映射进出门方向",
+      "category": "开门流程",
+      "componentType": "SCRIPT",
+      "language": "qlexpress",
+      "script": "// 开门请求处理节点 - 解析参数\nopenType = flowContext.getData(\"openType\");\nopenWay = flowContext.getData(\"openWay\");\ndoorNo = flowContext.getData(\"doorNo\");\nuserType = flowContext.getData(\"userType\");\ndoorType = flowContext.getData(\"doorType\");\nleaveOpenType = flowContext.getData(\"leaveOpenType\");\nleaveFromType = flowContext.getData(\"leaveFromType\");\nisSwitch = flowContext.getData(\"isSwitch\");\n\n// 设置默认值\nif (openType == null) { openType = 0; }\nif (openWay == null) { openWay = 1; }\nif (doorNo == null) { doorNo = 1; }\nif (userType == null) { userType = 1; }\nif (doorType == null) { doorType = 2; }\nif (leaveOpenType == null) { leaveOpenType = -1; }\nif (leaveFromType == null) { leaveFromType = -1; }\nif (isSwitch == null) { isSwitch = false; }\n\n// 映射进出门\nway = (openType == 0) ? \"enter\" : \"leave\";\nflowContext.setData(\"way\", way);\nflowContext.setData(\"doorType\", doorType);\nflowContext.setData(\"leaveOpenType\", leaveOpenType);\nflowContext.setData(\"leaveFromType\", leaveFromType);\nflowContext.setData(\"isSwitch\", isSwitch);\nflowContext.setData(\"openDoorTime\", java.lang.System.currentTimeMillis());\nflowContext.setData(\"openDoorSuccess\", true);\n\n// openWay 映射描述\nopenWayDesc = \"未知\";\nif (openWay == 0) { openWayDesc = \"扫码开门\"; }\nelse if (openWay == 1) { openWayDesc = \"购物后离店\"; }\nelse if (openWay == 2) { openWayDesc = \"POS离店\"; }\nelse if (openWay == 3) { openWayDesc = \"客服开门\"; }\nelse if (openWay == 4) { openWayDesc = \"红外感应\"; }\nelse if (openWay == 5) { openWayDesc = \"应急按钮\"; }\nelse if (openWay == 6) { openWayDesc = \"商家开门\"; }\nflowContext.setData(\"openWayDesc\", openWayDesc);\n\n// 模拟日志\nflowContext.setData(\"log_openDoor\", \"开门请求处理完成: way=\" + way + \", doorNo=\" + doorNo + \", openWay=\" + openWay + \"(\" + openWayDesc + \")\");",
+      "inputs": [
+        { "name": "openType", "type": "Integer", "description": "开门类型: 0=进门, 1=出门" },
+        { "name": "openWay", "type": "Integer", "description": "开门方式: 0=扫码, 1=购物离店..." },
+        { "name": "doorNo", "type": "Integer", "description": "门号" },
+        { "name": "userType", "type": "Integer", "description": "用户类型: 1=新客, 2=老客, 3=老板" },
+        { "name": "doorType", "type": "Integer", "description": "门类型: 1=电磁门, 2=电机门" },
+        { "name": "leaveOpenType", "type": "Integer", "description": "开门方式: 0=拉门, 1=推门" },
+        { "name": "leaveFromType", "type": "Integer", "description": "门扇位置: 0=左/右, 1=右/左" },
+        { "name": "isSwitch", "type": "Boolean", "description": "是否应急开关离店" }
+      ],
+      "outputs": [
+        { "name": "way", "type": "String", "description": "方向: enter/leave" },
+        { "name": "openWayDesc", "type": "String", "description": "开门方式描述" },
+        { "name": "openDoorSuccess", "type": "Boolean", "description": "开门是否成功" }
+      ],
+      "enabled": true
+    },
+    {
+      "componentId": "checkOnWatch",
+      "componentName": "值守状态判断",
+      "description": "判断当前是否处于值守状态",
+      "category": "开门流程",
+      "componentType": "BOOLEAN",
+      "language": "qlexpress",
+      "script": "// 判断是否在值守状态\nonWatch = flowContext.getData(\"onWatch\");\nif (onWatch == null) { onWatch = false; }\nreturn onWatch;",
+      "inputs": [
+        { "name": "onWatch", "type": "Boolean", "description": "是否值守中" }
+      ],
+      "outputs": [
+        { "name": "return", "type": "Boolean", "description": "值守状态判断结果" }
+      ],
+      "enabled": true
+    },
+    {
+      "componentId": "playVoice",
+      "componentName": "播放语音",
+      "description": "值守中播放开门语音，根据进出门、门类型等选择对应语音文件",
+      "category": "开门流程",
+      "componentType": "SCRIPT",
+      "language": "qlexpress",
+      "script": "// 值守中 - 播放开门语音\nway = flowContext.getData(\"way\");\nuserType = flowContext.getData(\"userType\");\ndoorNo = flowContext.getData(\"doorNo\");\ndoorType = flowContext.getData(\"doorType\");\nleaveOpenType = flowContext.getData(\"leaveOpenType\");\nleaveFromType = flowContext.getData(\"leaveFromType\");\nisSwitch = flowContext.getData(\"isSwitch\");\n\n// 设置默认值\nif (way == null) { way = \"enter\"; }\nif (userType == null) { userType = 1; }\nif (doorNo == null) { doorNo = 1; }\nif (doorType == null) { doorType = 2; }\nif (leaveOpenType == null) { leaveOpenType = -1; }\nif (leaveFromType == null) { leaveFromType = -1; }\nif (isSwitch == null) { isSwitch = false; }\n\n// 语音文件映射逻辑\nvoiceFile = null;\nvoiceFileDesc = \"\";\n\nif (\"enter\".equals(way)) {\n    // 进门语音\n    if (doorType == 2 || leaveOpenType == -1) {\n        voiceFile = \"default_welcome_voice.mp3\";\n        voiceFileDesc = \"默认欢迎语\";\n    } else if (leaveOpenType == 1) {\n        voiceFile = \"push_door_enter.mp3\";\n        voiceFileDesc = \"推门进店\";\n    } else {\n        voiceFile = \"pull_door_enter.mp3\";\n        voiceFileDesc = \"拉门进店\";\n    }\n} else {\n    // 离店语音\n    if (doorType == 2) {\n        voiceFile = isSwitch ? \"emergency_leave.mp3\" : \"leave_shop.mp3\";\n        voiceFileDesc = isSwitch ? \"应急离店\" : \"正常离店\";\n    } else if (leaveOpenType == 0) {\n        voiceFile = isSwitch ? \"push_door_emergency.mp3\" : \"push_door_leave.mp3\";\n        voiceFileDesc = isSwitch ? \"推门应急离店\" : \"推门离店\";\n    } else {\n        voiceFile = isSwitch ? \"pull_door_emergency.mp3\" : \"pull_door_leave.mp3\";\n        voiceFileDesc = isSwitch ? \"拉门应急离店\" : \"拉门离店\";\n    }\n}\n\n// userType 描述\nuserTypeDesc = \"未知\";\nif (userType == 1) { userTypeDesc = \"新客\"; }\nelse if (userType == 2) { userTypeDesc = \"老客\"; }\nelse if (userType == 3) { userTypeDesc = \"老板\"; }\n\n// 模拟播放语音\nvoicePlayed = true;\n\n// 保存结果到上下文\nflowContext.setData(\"voiceFile\", voiceFile);\nflowContext.setData(\"voiceFileDesc\", voiceFileDesc);\nflowContext.setData(\"userTypeDesc\", userTypeDesc);\nflowContext.setData(\"playVoiceTime\", java.lang.System.currentTimeMillis());\nflowContext.setData(\"voicePlayed\", voicePlayed);\nflowContext.setData(\"log_voice\", \"播放语音: \" + voiceFile + \" (\" + voiceFileDesc + \")\");",
+      "inputs": [
+        { "name": "way", "type": "String", "description": "方向: enter/leave" },
+        { "name": "userType", "type": "Integer", "description": "用户类型" },
+        { "name": "doorType", "type": "Integer", "description": "门类型" },
+        { "name": "leaveOpenType", "type": "Integer", "description": "开门方式" },
+        { "name": "isSwitch", "type": "Boolean", "description": "是否应急" }
+      ],
+      "outputs": [
+        { "name": "voiceFile", "type": "String", "description": "语音文件名" },
+        { "name": "voiceFileDesc", "type": "String", "description": "语音描述" },
+        { "name": "voicePlayed", "type": "Boolean", "description": "是否已播放" }
+      ],
+      "enabled": true
+    },
+    {
+      "componentId": "logOnly",
+      "componentName": "仅打印日志",
+      "description": "非值守状态时仅打印日志，不播放语音",
+      "category": "开门流程",
+      "componentType": "SCRIPT",
+      "language": "qlexpress",
+      "script": "// 非值守状态 - 仅打印日志\nway = flowContext.getData(\"way\");\nopenWay = flowContext.getData(\"openWay\");\ndoorNo = flowContext.getData(\"doorNo\");\ndoorType = flowContext.getData(\"doorType\");\nopenWayDesc = flowContext.getData(\"openWayDesc\");\n\nif (way == null) { way = \"enter\"; }\nif (openWay == null) { openWay = 1; }\nif (doorNo == null) { doorNo = 1; }\nif (doorType == null) { doorType = 2; }\nif (openWayDesc == null) { openWayDesc = \"未知\"; }\n\nflowContext.setData(\"voicePlayed\", false);\nflowContext.setData(\"voiceFile\", null);\nflowContext.setData(\"voiceFileDesc\", \"非值守状态不播放\");\nflowContext.setData(\"log_noWatch\", \"非值守状态，不播放语音。way=\" + way + \", doorNo=\" + doorNo);",
+      "inputs": [
+        { "name": "way", "type": "String", "description": "方向" },
+        { "name": "openWay", "type": "Integer", "description": "开门方式" },
+        { "name": "doorNo", "type": "Integer", "description": "门号" }
+      ],
+      "outputs": [
+        { "name": "voicePlayed", "type": "Boolean", "description": "是否已播放(false)" },
+        { "name": "log_noWatch", "type": "String", "description": "日志信息" }
+      ],
+      "enabled": true
+    },
+    {
+      "componentId": "resultSummary",
+      "componentName": "结果汇总",
+      "description": "汇总整个开门流程的执行结果",
+      "category": "开门流程",
+      "componentType": "SCRIPT",
+      "language": "qlexpress",
+      "script": "// 结果汇总\nway = flowContext.getData(\"way\");\nopenDoorSuccess = flowContext.getData(\"openDoorSuccess\");\nvoicePlayed = flowContext.getData(\"voicePlayed\");\nonWatch = flowContext.getData(\"onWatch\");\nvoiceFile = flowContext.getData(\"voiceFile\");\nvoiceFileDesc = flowContext.getData(\"voiceFileDesc\");\nopenWayDesc = flowContext.getData(\"openWayDesc\");\nuserTypeDesc = flowContext.getData(\"userTypeDesc\");\ndoorType = flowContext.getData(\"doorType\");\nisSwitch = flowContext.getData(\"isSwitch\");\n\nif (openDoorSuccess == null) { openDoorSuccess = false; }\nif (voicePlayed == null) { voicePlayed = false; }\nif (onWatch == null) { onWatch = false; }\nif (voiceFile == null) { voiceFile = \"无\"; }\nif (voiceFileDesc == null) { voiceFileDesc = \"无\"; }\nif (openWayDesc == null) { openWayDesc = \"未知\"; }\nif (userTypeDesc == null) { userTypeDesc = \"未知\"; }\nif (doorType == null) { doorType = 2; }\nif (isSwitch == null) { isSwitch = false; }\n\n// 门类型描述\ndoorTypeDesc = (doorType == 1) ? \"电磁门\" : \"电机门\";\n\nresult = \"{\" +\n    \"\\\"way\\\":\\\"\" + way + \"\\\",\" +\n    \"\\\"openDoorSuccess\\\":\" + openDoorSuccess + \",\" +\n    \"\\\"onWatch\\\":\" + onWatch + \",\" +\n    \"\\\"voicePlayed\\\":\" + voicePlayed + \",\" +\n    \"\\\"voiceFile\\\":\\\"\" + voiceFile + \"\\\",\" +\n    \"\\\"voiceFileDesc\\\":\\\"\" + voiceFileDesc + \"\\\",\" +\n    \"\\\"doorTypeDesc\\\":\\\"\" + doorTypeDesc + \"\\\",\" +\n    \"\\\"isSwitch\\\":\" + isSwitch +\n\"}\";\nflowContext.setData(\"result\", result);\nflowContext.setData(\"processEndTime\", java.lang.System.currentTimeMillis());",
+      "inputs": [
+        { "name": "way", "type": "String", "description": "方向" },
+        { "name": "openDoorSuccess", "type": "Boolean", "description": "开门是否成功" },
+        { "name": "voicePlayed", "type": "Boolean", "description": "是否播放语音" },
+        { "name": "onWatch", "type": "Boolean", "description": "是否值守" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "String", "description": "JSON格式结果" }
+      ],
+      "enabled": true
+    }
+  ],
+  "flow": {
+    "flowId": "openDoorChain",
+    "flowName": "开门播放语音流程",
+    "description": "开门请求处理 -> 值守状态判断 -> 播放语音/打印日志 -> 结果汇总",
+    "category": "开门流程",
+    "version": "1.0",
+    "enabled": true,
+    "root": {
+      "type": "THEN",
+      "children": [
+        {
+          "type": "COMPONENT",
+          "componentRef": "openDoorHandler"
+        },
+        {
+          "type": "IF",
+          "condition": {
+            "type": "COMPONENT",
+            "componentRef": "checkOnWatch"
+          },
+          "children": [
+            {
+              "type": "COMPONENT",
+              "componentRef": "playVoice"
+            },
+            {
+              "type": "COMPONENT",
+              "componentRef": "logOnly"
+            }
+          ]
+        },
+        {
+          "type": "COMPONENT",
+          "componentRef": "resultSummary"
+        }
+      ]
+    }
+  }
+}
