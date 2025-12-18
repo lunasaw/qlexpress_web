@@ -1,6 +1,7 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
 import { ConditionTypeEnum } from '../../../../types/enums';
+import { LITEFLOW_EDGE, NODE_TYPE_INTERMEDIATE_END } from '../../constant';
 
 /**
  * SWITCH 操作符 - 多路分支
@@ -40,62 +41,106 @@ export class SwitchOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
-
-    // 生成 SWITCH 节点
-    cells.push({
-      id: this.id,
-      shape: 'switch-node',
-      data: {
-        type: this.type,
-        label: '选择 (SWITCH)',
-        properties: this.properties,
-        hasCondition: !!this.condition,
-        branchCount: this.children.length,
-        hasDefault: !!this.defaultBranch,
-      },
-    });
+    const endId = `${this.id}_end`;
 
     // 生成条件节点
     if (this.condition) {
       cells.push(...this.condition.toCells());
-      cells.push({
-        id: `${this.id}_condition`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'condition' },
-        target: { cell: this.condition.id, port: 'in' },
-        labels: [{ attrs: { label: { text: '?' } } }],
-      });
     }
 
     // 生成各分支节点
     this.children.forEach((child, index) => {
       cells.push(...child.toCells());
 
-      const branchId = child.properties?.branch || `branch_${index}`;
-      cells.push({
-        id: `${this.id}_branch_${index}`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: `out_${index}` },
-        target: { cell: child.id, port: 'in' },
-        labels: [{ attrs: { label: { text: branchId } } }],
-        data: { branch: branchId },
-      });
+      // 条件节点 -> 分支 (使用入口点)
+      if (this.condition) {
+        const branchId = child.properties?.branch || `branch_${index}`;
+        const targetId = child.getEntryId();
+        cells.push({
+          id: `${this.id}_branch_${index}`,
+          shape: LITEFLOW_EDGE,
+          source: this.condition.getExitId(),
+          target: targetId,
+          labels: [{ attrs: { label: { text: branchId } } }],
+          data: { branch: branchId },
+        });
+      }
     });
 
     // 生成默认分支
     if (this.defaultBranch) {
       cells.push(...this.defaultBranch.toCells());
+      if (this.condition) {
+        const targetId = this.defaultBranch.getEntryId();
+        cells.push({
+          id: `${this.id}_default`,
+          shape: LITEFLOW_EDGE,
+          source: this.condition.getExitId(),
+          target: targetId,
+          labels: [{ attrs: { label: { text: 'DEFAULT' } } }],
+          data: { branch: 'default' },
+        });
+      }
+    }
+
+    // 生成结束汇聚节点
+    cells.push({
+      id: endId,
+      shape: NODE_TYPE_INTERMEDIATE_END,
+      data: {
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
+      },
+    });
+
+    // 各分支 -> 结束节点 (使用出口点)
+    this.children.forEach((child) => {
+      const sourceId = child.getExitId();
       cells.push({
-        id: `${this.id}_default`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'default' },
-        target: { cell: this.defaultBranch.id, port: 'in' },
-        labels: [{ attrs: { label: { text: 'DEFAULT' } } }],
-        data: { branch: 'default' },
+        id: `${sourceId}_to_${endId}`,
+        shape: LITEFLOW_EDGE,
+        source: sourceId,
+        target: endId,
+      });
+    });
+
+    // 默认分支 -> 结束节点
+    if (this.defaultBranch) {
+      const sourceId = this.defaultBranch.getExitId();
+      cells.push({
+        id: `${this.id}_default_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: sourceId,
+        target: endId,
       });
     }
 
     return cells;
+  }
+
+  /**
+   * 获取 SWITCH 的入口点 - 条件节点的入口
+   */
+  override getEntryId(): string {
+    if (this.condition) {
+      return this.condition.getEntryId();
+    }
+    return this.id;
+  }
+
+  /**
+   * 获取 SWITCH 的出口点 - 结束汇聚节点
+   */
+  override getExitId(): string {
+    return `${this.id}_end`;
   }
 
   toEL(prefix?: string): string {

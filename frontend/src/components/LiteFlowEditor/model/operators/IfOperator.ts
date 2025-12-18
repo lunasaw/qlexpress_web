@@ -1,6 +1,7 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
 import { ConditionTypeEnum } from '../../../../types/enums';
+import { LITEFLOW_EDGE, NODE_TYPE_INTERMEDIATE_END } from '../../constant';
 
 /**
  * IF 操作符 - 条件分支
@@ -51,60 +52,103 @@ export class IfOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
-
-    // 生成 IF 节点
-    cells.push({
-      id: this.id,
-      shape: 'if-node',
-      data: {
-        type: this.type,
-        label: '条件 (IF)',
-        properties: this.properties,
-        hasCondition: !!this.condition,
-        hasTrueBranch: !!this.trueBranch,
-        hasFalseBranch: !!this.falseBranch,
-      },
-    });
+    const endId = `${this.id}_end`;
 
     // 生成条件节点
     if (this.condition) {
       cells.push(...this.condition.toCells());
-      cells.push({
-        id: `${this.id}_condition`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'condition' },
-        target: { cell: this.condition.id, port: 'in' },
-        labels: [{ attrs: { label: { text: '?' } } }],
-      });
     }
 
     // 生成 true 分支
     if (this.trueBranch) {
       cells.push(...this.trueBranch.toCells());
-      cells.push({
-        id: `${this.id}_true`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'true' },
-        target: { cell: this.trueBranch.id, port: 'in' },
-        labels: [{ attrs: { label: { text: 'Y' } } }],
-        data: { branch: 'true' },
-      });
+      // 条件节点 -> true 分支 (使用入口点)
+      if (this.condition) {
+        const targetId = this.trueBranch.getEntryId();
+        cells.push({
+          id: `${this.id}_to_true`,
+          shape: LITEFLOW_EDGE,
+          source: this.condition.getExitId(),
+          target: targetId,
+          labels: [{ attrs: { label: { text: 'Y' } } }],
+        });
+      }
     }
 
     // 生成 false 分支
     if (this.falseBranch) {
       cells.push(...this.falseBranch.toCells());
+      // 条件节点 -> false 分支 (使用入口点)
+      if (this.condition) {
+        const targetId = this.falseBranch.getEntryId();
+        cells.push({
+          id: `${this.id}_to_false`,
+          shape: LITEFLOW_EDGE,
+          source: this.condition.getExitId(),
+          target: targetId,
+          labels: [{ attrs: { label: { text: 'N' } } }],
+        });
+      }
+    }
+
+    // 生成结束汇聚节点
+    cells.push({
+      id: endId,
+      shape: NODE_TYPE_INTERMEDIATE_END,
+      data: {
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
+      },
+    });
+
+    // true 分支 -> 结束节点 (使用出口点)
+    if (this.trueBranch) {
+      const sourceId = this.trueBranch.getExitId();
       cells.push({
-        id: `${this.id}_false`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'false' },
-        target: { cell: this.falseBranch.id, port: 'in' },
-        labels: [{ attrs: { label: { text: 'N' } } }],
-        data: { branch: 'false' },
+        id: `${this.id}_true_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: sourceId,
+        target: endId,
+      });
+    }
+
+    // false 分支 -> 结束节点 (使用出口点)
+    if (this.falseBranch) {
+      const sourceId = this.falseBranch.getExitId();
+      cells.push({
+        id: `${this.id}_false_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: sourceId,
+        target: endId,
       });
     }
 
     return cells;
+  }
+
+  /**
+   * 获取 IF 的入口点 - 条件节点的入口
+   */
+  override getEntryId(): string {
+    if (this.condition) {
+      return this.condition.getEntryId();
+    }
+    return this.id;
+  }
+
+  /**
+   * 获取 IF 的出口点 - 结束汇聚节点
+   */
+  override getExitId(): string {
+    return `${this.id}_end`;
   }
 
   toEL(prefix?: string): string {

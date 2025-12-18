@@ -1,6 +1,7 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
 import { ConditionTypeEnum } from '../../../../types/enums';
+import { LITEFLOW_EDGE } from '../../constant';
 
 /**
  * THEN 操作符 - 串行执行
@@ -14,50 +15,48 @@ export class ThenOperator extends ELNode {
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
 
-    // 生成容器节点
-    cells.push({
-      id: this.id,
-      shape: 'then-node',
-      data: {
-        type: this.type,
-        label: '串行 (THEN)',
-        properties: this.properties,
-        childCount: this.children.length,
-      },
-    });
-
+    // THEN 操作符不生成自己的节点，只生成子节点和它们之间的连线
     // 生成子节点
     this.children.forEach((child) => {
       cells.push(...child.toCells());
     });
 
-    // 生成连线
-    for (let i = 0; i < this.children.length; i++) {
+    // 生成子节点之间的连线
+    // 使用 getExitId() 和 getEntryId() 获取正确的连接点
+    for (let i = 0; i < this.children.length - 1; i++) {
       const child = this.children[i];
-
-      // 从容器到第一个子节点
-      if (i === 0) {
-        cells.push({
-          id: `${this.id}_to_${child.id}`,
-          shape: 'flow-edge',
-          source: { cell: this.id, port: 'out' },
-          target: { cell: child.id, port: 'in' },
-        });
-      }
-
-      // 子节点之间的连线
-      if (i < this.children.length - 1) {
-        const nextChild = this.children[i + 1];
-        cells.push({
-          id: `${child.id}_to_${nextChild.id}`,
-          shape: 'flow-edge',
-          source: { cell: child.id, port: 'out' },
-          target: { cell: nextChild.id, port: 'in' },
-        });
-      }
+      const nextChild = this.children[i + 1];
+      const sourceId = child.getExitId();
+      const targetId = nextChild.getEntryId();
+      cells.push({
+        id: `${sourceId}_to_${targetId}`,
+        shape: LITEFLOW_EDGE,
+        source: sourceId,
+        target: targetId,
+      });
     }
 
     return cells;
+  }
+
+  /**
+   * 获取 THEN 的入口点 - 第一个子节点的入口
+   */
+  override getEntryId(): string {
+    if (this.children.length > 0) {
+      return this.children[0].getEntryId();
+    }
+    return this.id;
+  }
+
+  /**
+   * 获取 THEN 的出口点 - 最后一个子节点的出口
+   */
+  override getExitId(): string {
+    if (this.children.length > 0) {
+      return this.children[this.children.length - 1].getExitId();
+    }
+    return this.id;
   }
 
   toEL(prefix?: string): string {

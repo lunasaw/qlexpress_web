@@ -1,6 +1,11 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
-import { ConditionTypeEnum, NodeTypeEnum } from '../../../../types/enums';
+import { ConditionTypeEnum } from '../../../../types/enums';
+import {
+  NODE_TYPE_START,
+  NODE_TYPE_END,
+  LITEFLOW_EDGE,
+} from '../../constant';
 import type { CmpProperty } from '../../../../types/flow';
 
 /**
@@ -18,15 +23,24 @@ export class ChainOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
+    const startId = `${this.id}_start`;
+    const endId = `${this.id}_end`;
 
     // 开始节点
     cells.push({
-      id: `${this.id}_start`,
-      shape: 'start-end-node',
+      id: startId,
+      shape: NODE_TYPE_START,
       data: {
-        type: NodeTypeEnum.START,
-        label: 'START',
-        isStart: true,
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
       },
     });
 
@@ -37,43 +51,66 @@ export class ChainOperator extends ELNode {
 
     // 结束节点
     cells.push({
-      id: `${this.id}_end`,
-      shape: 'start-end-node',
+      id: endId,
+      shape: NODE_TYPE_END,
       data: {
-        type: NodeTypeEnum.END,
-        label: 'END',
-        isEnd: true,
+        model: this,
+        toolbar: {
+          prepend: true,
+          append: false,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
       },
     });
 
-    // 连线：START -> 第一个子节点
+    // 连线：START -> 第一个子节点 (使用入口点)
     if (this.children.length > 0) {
+      const firstChildEntryId = this.children[0].getEntryId();
       cells.push({
         id: `${this.id}_start_edge`,
-        shape: 'flow-edge',
-        source: { cell: `${this.id}_start`, port: 'out' },
-        target: { cell: this.children[0].id, port: 'in' },
+        shape: LITEFLOW_EDGE,
+        source: startId,
+        target: firstChildEntryId,
       });
 
-      // 连线：最后一个子节点 -> END
+      // 连线：最后一个子节点 -> END (使用出口点)
       const lastChild = this.children[this.children.length - 1];
+      const lastChildExitId = lastChild.getExitId();
       cells.push({
         id: `${this.id}_end_edge`,
-        shape: 'flow-edge',
-        source: { cell: lastChild.id, port: 'out' },
-        target: { cell: `${this.id}_end`, port: 'in' },
+        shape: LITEFLOW_EDGE,
+        source: lastChildExitId,
+        target: endId,
       });
     } else {
       // 无子节点时直接连接 START -> END
       cells.push({
         id: `${this.id}_direct_edge`,
-        shape: 'flow-edge',
-        source: { cell: `${this.id}_start`, port: 'out' },
-        target: { cell: `${this.id}_end`, port: 'in' },
+        shape: LITEFLOW_EDGE,
+        source: startId,
+        target: endId,
       });
     }
 
     return cells;
+  }
+
+  /**
+   * 获取 CHAIN 的入口点 - START 节点
+   */
+  override getEntryId(): string {
+    return `${this.id}_start`;
+  }
+
+  /**
+   * 获取 CHAIN 的出口点 - END 节点
+   */
+  override getExitId(): string {
+    return `${this.id}_end`;
   }
 
   toEL(prefix?: string): string {

@@ -1,6 +1,7 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
 import { ConditionTypeEnum } from '../../../../types/enums';
+import { LITEFLOW_EDGE, NODE_TYPE_INTERMEDIATE_END } from '../../constant';
 
 /**
  * WHEN 操作符 - 并行执行
@@ -13,16 +14,25 @@ export class WhenOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
+    const forkId = `${this.id}_fork`;
+    const joinId = `${this.id}_join`;
 
-    // 生成并行容器节点
+    // 生成分叉节点
     cells.push({
-      id: this.id,
+      id: forkId,
       shape: 'when-node',
       data: {
+        model: this,
         type: this.type,
         label: '并行 (WHEN)',
         properties: this.properties,
         childCount: this.children.length,
+        toolbar: {
+          prepend: true,
+          append: false,
+          delete: true,
+          replace: true,
+        },
       },
     });
 
@@ -31,18 +41,63 @@ export class WhenOperator extends ELNode {
       cells.push(...child.toCells());
     });
 
-    // 生成从容器到各子节点的连线 (分叉)
+    // 生成汇聚节点
+    cells.push({
+      id: joinId,
+      shape: NODE_TYPE_INTERMEDIATE_END,
+      data: {
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
+      },
+    });
+
+    // 生成从分叉节点到各子节点的连线 (使用入口点)
     this.children.forEach((child) => {
+      const targetId = child.getEntryId();
       cells.push({
-        id: `${this.id}_to_${child.id}`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'out' },
-        target: { cell: child.id, port: 'in' },
+        id: `${forkId}_to_${targetId}`,
+        shape: LITEFLOW_EDGE,
+        source: forkId,
+        target: targetId,
+        data: { parallel: true },
+      });
+    });
+
+    // 生成从各子节点到汇聚节点的连线 (使用出口点)
+    this.children.forEach((child) => {
+      const sourceId = child.getExitId();
+      cells.push({
+        id: `${sourceId}_to_${joinId}`,
+        shape: LITEFLOW_EDGE,
+        source: sourceId,
+        target: joinId,
         data: { parallel: true },
       });
     });
 
     return cells;
+  }
+
+  /**
+   * 获取 WHEN 的入口点 - 分叉节点
+   */
+  override getEntryId(): string {
+    return `${this.id}_fork`;
+  }
+
+  /**
+   * 获取 WHEN 的出口点 - 汇聚节点
+   */
+  override getExitId(): string {
+    return `${this.id}_join`;
   }
 
   toEL(prefix?: string): string {

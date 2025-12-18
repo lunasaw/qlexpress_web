@@ -1,6 +1,7 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
 import { ConditionTypeEnum } from '../../../../types/enums';
+import { LITEFLOW_EDGE, NODE_TYPE_INTERMEDIATE_END } from '../../constant';
 
 /**
  * FOR 操作符 - 次数循环
@@ -32,30 +33,85 @@ export class ForOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
+    const loopStartId = `${this.id}_loop_start`;
+    const loopEndId = `${this.id}_loop_end`;
 
+    // 循环开始节点
     cells.push({
-      id: this.id,
+      id: loopStartId,
       shape: 'for-node',
       data: {
+        model: this,
         type: this.type,
         label: `循环 (FOR ${this.properties?.loopCount || '?'})`,
         properties: this.properties,
         hasBody: !!this.body,
+        toolbar: {
+          prepend: true,
+          append: false,
+          delete: true,
+          replace: true,
+        },
       },
     });
 
     if (this.body) {
       cells.push(...this.body.toCells());
+      // 循环开始 -> 循环体
+      const bodyEntryId = this.body.getEntryId();
       cells.push({
-        id: `${this.id}_body`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'out' },
-        target: { cell: this.body.id, port: 'in' },
+        id: `${this.id}_to_body`,
+        shape: LITEFLOW_EDGE,
+        source: loopStartId,
+        target: bodyEntryId,
         labels: [{ attrs: { label: { text: 'DO' } } }],
       });
     }
 
+    // 循环结束节点
+    cells.push({
+      id: loopEndId,
+      shape: NODE_TYPE_INTERMEDIATE_END,
+      data: {
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
+      },
+    });
+
+    // 循环体 -> 循环结束
+    if (this.body) {
+      const bodyExitId = this.body.getExitId();
+      cells.push({
+        id: `${this.id}_body_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: bodyExitId,
+        target: loopEndId,
+      });
+    }
+
     return cells;
+  }
+
+  /**
+   * 获取 FOR 的入口点
+   */
+  override getEntryId(): string {
+    return `${this.id}_loop_start`;
+  }
+
+  /**
+   * 获取 FOR 的出口点
+   */
+  override getExitId(): string {
+    return `${this.id}_loop_end`;
   }
 
   toEL(prefix?: string): string {
@@ -116,42 +172,87 @@ export class WhileOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
+    const loopEndId = `${this.id}_loop_end`;
 
+    // 条件节点
+    if (this.condition) {
+      cells.push(...this.condition.toCells());
+    }
+
+    // 循环体
+    if (this.body) {
+      cells.push(...this.body.toCells());
+      // 条件 -> 循环体
+      if (this.condition) {
+        const bodyEntryId = this.body.getEntryId();
+        cells.push({
+          id: `${this.id}_to_body`,
+          shape: LITEFLOW_EDGE,
+          source: this.condition.getExitId(),
+          target: bodyEntryId,
+          labels: [{ attrs: { label: { text: 'Y' } } }],
+        });
+      }
+    }
+
+    // 循环结束节点
     cells.push({
-      id: this.id,
-      shape: 'while-node',
+      id: loopEndId,
+      shape: NODE_TYPE_INTERMEDIATE_END,
       data: {
-        type: this.type,
-        label: '条件循环 (WHILE)',
-        properties: this.properties,
-        hasCondition: !!this.condition,
-        hasBody: !!this.body,
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
       },
     });
 
+    // 循环体 -> 条件 (回环)
+    // 条件 -> 结束 (退出循环)
     if (this.condition) {
-      cells.push(...this.condition.toCells());
       cells.push({
-        id: `${this.id}_condition`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'condition' },
-        target: { cell: this.condition.id, port: 'in' },
-        labels: [{ attrs: { label: { text: '?' } } }],
+        id: `${this.id}_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: this.condition.getExitId(),
+        target: loopEndId,
+        labels: [{ attrs: { label: { text: 'N' } } }],
       });
     }
 
     if (this.body) {
-      cells.push(...this.body.toCells());
+      const bodyExitId = this.body.getExitId();
       cells.push({
-        id: `${this.id}_body`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'out' },
-        target: { cell: this.body.id, port: 'in' },
-        labels: [{ attrs: { label: { text: 'DO' } } }],
+        id: `${this.id}_body_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: bodyExitId,
+        target: loopEndId,
       });
     }
 
     return cells;
+  }
+
+  /**
+   * 获取 WHILE 的入口点 - 条件节点的入口
+   */
+  override getEntryId(): string {
+    if (this.condition) {
+      return this.condition.getEntryId();
+    }
+    return this.id;
+  }
+
+  /**
+   * 获取 WHILE 的出口点
+   */
+  override getExitId(): string {
+    return `${this.id}_loop_end`;
   }
 
   toEL(prefix?: string): string {
@@ -219,42 +320,76 @@ export class IteratorOperator extends ELNode {
 
   toCells(): Cell.Metadata[] {
     const cells: Cell.Metadata[] = [];
+    const loopEndId = `${this.id}_loop_end`;
 
+    // 迭代器节点
+    if (this.condition) {
+      cells.push(...this.condition.toCells());
+    }
+
+    // 循环体
+    if (this.body) {
+      cells.push(...this.body.toCells());
+      // 迭代器 -> 循环体
+      if (this.condition) {
+        const bodyEntryId = this.body.getEntryId();
+        cells.push({
+          id: `${this.id}_to_body`,
+          shape: LITEFLOW_EDGE,
+          source: this.condition.getExitId(),
+          target: bodyEntryId,
+          labels: [{ attrs: { label: { text: 'DO' } } }],
+        });
+      }
+    }
+
+    // 循环结束节点
     cells.push({
-      id: this.id,
-      shape: 'iterator-node',
+      id: loopEndId,
+      shape: NODE_TYPE_INTERMEDIATE_END,
       data: {
-        type: this.type,
-        label: '迭代循环 (ITERATOR)',
-        properties: this.properties,
-        hasCondition: !!this.condition,
-        hasBody: !!this.body,
+        model: this,
+        toolbar: {
+          prepend: false,
+          append: true,
+          delete: false,
+          replace: false,
+        },
+      },
+      attrs: {
+        label: { text: '' },
       },
     });
 
-    if (this.condition) {
-      cells.push(...this.condition.toCells());
-      cells.push({
-        id: `${this.id}_iterator`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'condition' },
-        target: { cell: this.condition.id, port: 'in' },
-        labels: [{ attrs: { label: { text: 'ITER' } } }],
-      });
-    }
-
+    // 循环体 -> 结束
     if (this.body) {
-      cells.push(...this.body.toCells());
+      const bodyExitId = this.body.getExitId();
       cells.push({
-        id: `${this.id}_body`,
-        shape: 'flow-edge',
-        source: { cell: this.id, port: 'out' },
-        target: { cell: this.body.id, port: 'in' },
-        labels: [{ attrs: { label: { text: 'DO' } } }],
+        id: `${this.id}_body_to_end`,
+        shape: LITEFLOW_EDGE,
+        source: bodyExitId,
+        target: loopEndId,
       });
     }
 
     return cells;
+  }
+
+  /**
+   * 获取 ITERATOR 的入口点 - 迭代器节点的入口
+   */
+  override getEntryId(): string {
+    if (this.condition) {
+      return this.condition.getEntryId();
+    }
+    return this.id;
+  }
+
+  /**
+   * 获取 ITERATOR 的出口点
+   */
+  override getExitId(): string {
+    return `${this.id}_loop_end`;
   }
 
   toEL(prefix?: string): string {

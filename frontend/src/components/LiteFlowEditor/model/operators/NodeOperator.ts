@@ -1,6 +1,7 @@
 import type { Cell } from '@antv/x6';
 import { ELNode } from '../ELNode';
 import { NodeTypeEnum, ComponentType, COMPONENT_TYPE_TO_NODE_TYPE } from '../../../../types/enums';
+import { getNodeShapeByType } from '../../cells';
 import type { QLComponent } from '../../../../types/component';
 
 /**
@@ -62,17 +63,25 @@ export class NodeOperator extends ELNode {
   }
 
   toCells(): Cell.Metadata[] {
+    // 使用 getNodeShapeByType 获取正确的节点形状
+    const shape = getNodeShapeByType(this.type as NodeTypeEnum);
     return [
       {
         id: this.id,
-        shape: 'common-node',
+        shape: shape,
         data: {
-          type: this.type,
-          componentRef: this.componentRef,
-          componentData: this.componentData,
-          label: this.displayName,
-          color: this.color,
-          properties: this.properties,
+          model: this,
+          toolbar: {
+            prepend: true,
+            append: true,
+            delete: true,
+            replace: true,
+          },
+        },
+        attrs: {
+          label: {
+            text: this.displayName,
+          },
         },
       },
     ];

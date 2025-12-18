@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { Graph, Node, Edge } from '@antv/x6';
 import dagre from 'dagre';
+import { NODE_SEP, RANK_SEP } from '../constant';
 
 /**
  * 布局配置选项
@@ -17,13 +18,13 @@ export interface LayoutOptions {
 }
 
 /**
- * 默认布局配置
+ * 默认布局配置 - 匹配 liteflow-editor-client
  */
 const defaultLayoutOptions: LayoutOptions = {
-  rankdir: 'TB',
-  nodesep: 50,
-  ranksep: 80,
-  align: 'UL',
+  rankdir: 'LR',  // 从左到右
+  nodesep: NODE_SEP,
+  ranksep: RANK_SEP,
+  align: undefined,
 };
 
 /**

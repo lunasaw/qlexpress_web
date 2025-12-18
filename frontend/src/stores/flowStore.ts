@@ -1,11 +1,13 @@
 import { create } from 'zustand';
-import type { Graph, Node } from '@antv/x6';
+import type { Graph, Node, Edge } from '@antv/x6';
+import dagre from 'dagre';
 import type { FlowRequest } from '../types/flow';
 import type { QLComponent } from '../types/component';
 import { ELNode, ELBuilder } from '../components/LiteFlowEditor/model';
 import { NodeOperator, ThenOperator, ChainOperator } from '../components/LiteFlowEditor/model/operators';
 import { ConditionTypeEnum } from '../types/enums';
 import { flowApi } from '../api/flow';
+import { RANK_SEP, NODE_SEP } from '../components/LiteFlowEditor/constant';
 
 interface FlowState {
   // ===== 流程元数据 =====
@@ -364,8 +366,62 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
     const { graph } = get();
     if (!graph) return;
 
-    // TODO: 实现 Dagre 自动布局
-    // 这里将在第三阶段实现
+    const nodes = graph.getNodes();
+    const edges = graph.getEdges();
+
+    if (nodes.length === 0) return;
+
+    // 创建 dagre 图
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({
+      rankdir: 'LR', // 从左到右布局
+      nodesep: NODE_SEP,
+      ranksep: RANK_SEP,
+    });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    // 添加节点到 dagre
+    nodes.forEach((node: Node) => {
+      const size = node.getSize();
+      g.setNode(node.id, {
+        width: size.width || 120,
+        height: size.height || 40,
+      });
+    });
+
+    // 添加边到 dagre
+    edges.forEach((edge: Edge) => {
+      const source = edge.getSourceCellId();
+      const target = edge.getTargetCellId();
+      if (source && target) {
+        g.setEdge(source, target);
+      }
+    });
+
+    // 执行布局计算
+    dagre.layout(g);
+
+    // 开始批量更新
+    graph.startBatch('layout');
+
+    // 应用布局结果到节点
+    nodes.forEach((node: Node) => {
+      const dagreNode = g.node(node.id);
+      if (dagreNode) {
+        node.setPosition({
+          x: dagreNode.x - dagreNode.width / 2,
+          y: dagreNode.y - dagreNode.height / 2,
+        });
+      }
+    });
+
+    // 结束批量更新
+    graph.stopBatch('layout');
+
+    // 居中并适应画布
+    setTimeout(() => {
+      graph.zoomToFit({ padding: 50, maxScale: 1 });
+    }, 100);
   },
 
   // ===== EL 操作 =====

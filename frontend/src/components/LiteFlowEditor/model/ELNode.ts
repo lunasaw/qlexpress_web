@@ -157,6 +157,26 @@ export abstract class ELNode {
    */
   abstract toEL(prefix?: string): string;
 
+  // ===== 图形连接点 =====
+
+  /**
+   * 获取节点的入口点 ID
+   * 用于外部节点连接到此节点
+   * 默认返回节点自身 ID，编排节点需要重写
+   */
+  getEntryId(): string {
+    return this.id;
+  }
+
+  /**
+   * 获取节点的出口点 ID
+   * 用��此节点连接到外部节点
+   * 默认返回节点自身 ID，编排节点需要重写
+   */
+  getExitId(): string {
+    return this.id;
+  }
+
   // ===== JSON 转换 (对接后端 CmpProperty) =====
 
   /**
