@@ -31,7 +31,7 @@ export class AndOperator extends ELNode {
       cells.push(...child.toCells());
       cells.push({
         id: `${this.id}_to_${child.id}`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: `out_${index}` },
         target: { cell: child.id, port: 'in' },
       });
@@ -90,7 +90,7 @@ export class OrOperator extends ELNode {
       cells.push(...child.toCells());
       cells.push({
         id: `${this.id}_to_${child.id}`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: `out_${index}` },
         target: { cell: child.id, port: 'in' },
       });
@@ -160,7 +160,7 @@ export class NotOperator extends ELNode {
       cells.push(...this.operand.toCells());
       cells.push({
         id: `${this.id}_to_${this.operand.id}`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'out' },
         target: { cell: this.operand.id, port: 'in' },
       });

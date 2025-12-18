@@ -48,7 +48,7 @@ export class ForOperator extends ELNode {
       cells.push(...this.body.toCells());
       cells.push({
         id: `${this.id}_body`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'out' },
         target: { cell: this.body.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'DO' } } }],
@@ -133,7 +133,7 @@ export class WhileOperator extends ELNode {
       cells.push(...this.condition.toCells());
       cells.push({
         id: `${this.id}_condition`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'condition' },
         target: { cell: this.condition.id, port: 'in' },
         labels: [{ attrs: { label: { text: '?' } } }],
@@ -144,7 +144,7 @@ export class WhileOperator extends ELNode {
       cells.push(...this.body.toCells());
       cells.push({
         id: `${this.id}_body`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'out' },
         target: { cell: this.body.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'DO' } } }],
@@ -236,7 +236,7 @@ export class IteratorOperator extends ELNode {
       cells.push(...this.condition.toCells());
       cells.push({
         id: `${this.id}_iterator`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'condition' },
         target: { cell: this.condition.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'ITER' } } }],
@@ -247,7 +247,7 @@ export class IteratorOperator extends ELNode {
       cells.push(...this.body.toCells());
       cells.push({
         id: `${this.id}_body`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'out' },
         target: { cell: this.body.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'DO' } } }],

@@ -71,7 +71,7 @@ export class IfOperator extends ELNode {
       cells.push(...this.condition.toCells());
       cells.push({
         id: `${this.id}_condition`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'condition' },
         target: { cell: this.condition.id, port: 'in' },
         labels: [{ attrs: { label: { text: '?' } } }],
@@ -83,7 +83,7 @@ export class IfOperator extends ELNode {
       cells.push(...this.trueBranch.toCells());
       cells.push({
         id: `${this.id}_true`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'true' },
         target: { cell: this.trueBranch.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'Y' } } }],
@@ -96,7 +96,7 @@ export class IfOperator extends ELNode {
       cells.push(...this.falseBranch.toCells());
       cells.push({
         id: `${this.id}_false`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'false' },
         target: { cell: this.falseBranch.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'N' } } }],

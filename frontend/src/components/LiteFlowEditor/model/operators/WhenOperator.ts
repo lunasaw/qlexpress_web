@@ -35,7 +35,7 @@ export class WhenOperator extends ELNode {
     this.children.forEach((child) => {
       cells.push({
         id: `${this.id}_to_${child.id}`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'out' },
         target: { cell: child.id, port: 'in' },
         data: { parallel: true },

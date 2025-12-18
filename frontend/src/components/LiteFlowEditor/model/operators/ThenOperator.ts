@@ -39,7 +39,7 @@ export class ThenOperator extends ELNode {
       if (i === 0) {
         cells.push({
           id: `${this.id}_to_${child.id}`,
-          shape: 'edge',
+          shape: 'flow-edge',
           source: { cell: this.id, port: 'out' },
           target: { cell: child.id, port: 'in' },
         });
@@ -50,7 +50,7 @@ export class ThenOperator extends ELNode {
         const nextChild = this.children[i + 1];
         cells.push({
           id: `${child.id}_to_${nextChild.id}`,
-          shape: 'edge',
+          shape: 'flow-edge',
           source: { cell: child.id, port: 'out' },
           target: { cell: nextChild.id, port: 'in' },
         });

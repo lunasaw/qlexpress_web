@@ -57,7 +57,7 @@ export class CatchOperator extends ELNode {
       cells.push(...this.tryBody.toCells());
       cells.push({
         id: `${this.id}_try`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'try' },
         target: { cell: this.tryBody.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'TRY' } } }],
@@ -68,7 +68,7 @@ export class CatchOperator extends ELNode {
       cells.push(...this.catchBody.toCells());
       cells.push({
         id: `${this.id}_catch`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'catch' },
         target: { cell: this.catchBody.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'CATCH' } } }],

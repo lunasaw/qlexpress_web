@@ -50,7 +50,7 @@ export class ChainOperator extends ELNode {
     if (this.children.length > 0) {
       cells.push({
         id: `${this.id}_start_edge`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: `${this.id}_start`, port: 'out' },
         target: { cell: this.children[0].id, port: 'in' },
       });
@@ -59,7 +59,7 @@ export class ChainOperator extends ELNode {
       const lastChild = this.children[this.children.length - 1];
       cells.push({
         id: `${this.id}_end_edge`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: lastChild.id, port: 'out' },
         target: { cell: `${this.id}_end`, port: 'in' },
       });
@@ -67,7 +67,7 @@ export class ChainOperator extends ELNode {
       // 无子节点时直接连接 START -> END
       cells.push({
         id: `${this.id}_direct_edge`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: `${this.id}_start`, port: 'out' },
         target: { cell: `${this.id}_end`, port: 'in' },
       });

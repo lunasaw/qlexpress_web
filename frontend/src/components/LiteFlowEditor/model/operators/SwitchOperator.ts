@@ -60,7 +60,7 @@ export class SwitchOperator extends ELNode {
       cells.push(...this.condition.toCells());
       cells.push({
         id: `${this.id}_condition`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'condition' },
         target: { cell: this.condition.id, port: 'in' },
         labels: [{ attrs: { label: { text: '?' } } }],
@@ -74,7 +74,7 @@ export class SwitchOperator extends ELNode {
       const branchId = child.properties?.branch || `branch_${index}`;
       cells.push({
         id: `${this.id}_branch_${index}`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: `out_${index}` },
         target: { cell: child.id, port: 'in' },
         labels: [{ attrs: { label: { text: branchId } } }],
@@ -87,7 +87,7 @@ export class SwitchOperator extends ELNode {
       cells.push(...this.defaultBranch.toCells());
       cells.push({
         id: `${this.id}_default`,
-        shape: 'edge',
+        shape: 'flow-edge',
         source: { cell: this.id, port: 'default' },
         target: { cell: this.defaultBranch.id, port: 'in' },
         labels: [{ attrs: { label: { text: 'DEFAULT' } } }],

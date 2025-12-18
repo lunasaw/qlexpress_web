@@ -56,8 +56,28 @@ export class ELBuilder {
 
   /**
    * 从 CmpProperty 构建 ELNode 树
+   * @param json 后端返回的 CmpProperty JSON
+   * @param parent 父节点（内部递归使用）
+   * @param isRoot 是否是根节点（默认 true，内部递归时为 false）
    */
-  build(json: CmpProperty, parent?: ELNode): ELNode {
+  build(json: CmpProperty, parent?: ELNode, isRoot = true): ELNode {
+    const type = json.type?.toUpperCase();
+
+    // 如果是根节点且不是 CHAIN 类型，自动用 ChainOperator 包装
+    if (isRoot && type !== ConditionTypeEnum.CHAIN) {
+      const chain = new ChainOperator(parent);
+      const child = this.buildInternal(json, chain);
+      chain.appendChild(child);
+      return chain;
+    }
+
+    return this.buildInternal(json, parent);
+  }
+
+  /**
+   * 内部构建方法
+   */
+  private buildInternal(json: CmpProperty, parent?: ELNode): ELNode {
     const type = json.type?.toUpperCase();
 
     switch (type) {
@@ -114,7 +134,7 @@ export class ELBuilder {
 
     if (json.children) {
       json.children.forEach((childJson) => {
-        const child = this.build(childJson, node);
+        const child = this.buildInternal(childJson, node);
         node.appendChild(child);
       });
     }
@@ -132,7 +152,7 @@ export class ELBuilder {
 
     if (json.children) {
       json.children.forEach((childJson) => {
-        const child = this.build(childJson, node);
+        const child = this.buildInternal(childJson, node);
         node.appendChild(child);
       });
     }
@@ -150,7 +170,7 @@ export class ELBuilder {
 
     if (json.children) {
       json.children.forEach((childJson) => {
-        const child = this.build(childJson, node);
+        const child = this.buildInternal(childJson, node);
         node.appendChild(child);
       });
     }
@@ -168,16 +188,16 @@ export class ELBuilder {
 
     // 构建条件
     if (json.condition) {
-      node.condition = this.build(json.condition, node);
+      node.condition = this.buildInternal(json.condition, node);
     }
 
     // 构建分支
     if (json.children) {
       if (json.children[0]) {
-        node.trueBranch = this.build(json.children[0], node);
+        node.trueBranch = this.buildInternal(json.children[0], node);
       }
       if (json.children[1]) {
-        node.falseBranch = this.build(json.children[1], node);
+        node.falseBranch = this.buildInternal(json.children[1], node);
       }
     }
 
@@ -194,13 +214,13 @@ export class ELBuilder {
 
     // 构建条件
     if (json.condition) {
-      node.condition = this.build(json.condition, node);
+      node.condition = this.buildInternal(json.condition, node);
     }
 
     // 构建分支
     if (json.children) {
       json.children.forEach((childJson) => {
-        const child = this.build(childJson, node);
+        const child = this.buildInternal(childJson, node);
         node.appendChild(child);
       });
     }
@@ -218,7 +238,7 @@ export class ELBuilder {
 
     // 构建循环体
     if (json.children && json.children[0]) {
-      node.body = this.build(json.children[0], node);
+      node.body = this.buildInternal(json.children[0], node);
     }
 
     return node;
@@ -234,12 +254,12 @@ export class ELBuilder {
 
     // 构建条件
     if (json.condition) {
-      node.condition = this.build(json.condition, node);
+      node.condition = this.buildInternal(json.condition, node);
     }
 
     // 构建循环体
     if (json.children && json.children[0]) {
-      node.body = this.build(json.children[0], node);
+      node.body = this.buildInternal(json.children[0], node);
     }
 
     return node;
@@ -255,12 +275,12 @@ export class ELBuilder {
 
     // 构建迭代器
     if (json.condition) {
-      node.condition = this.build(json.condition, node);
+      node.condition = this.buildInternal(json.condition, node);
     }
 
     // 构建循环体
     if (json.children && json.children[0]) {
-      node.body = this.build(json.children[0], node);
+      node.body = this.buildInternal(json.children[0], node);
     }
 
     return node;
@@ -277,10 +297,10 @@ export class ELBuilder {
     // 构建 try 体和 catch 体
     if (json.children) {
       if (json.children[0]) {
-        node.tryBody = this.build(json.children[0], node);
+        node.tryBody = this.buildInternal(json.children[0], node);
       }
       if (json.children[1]) {
-        node.catchBody = this.build(json.children[1], node);
+        node.catchBody = this.buildInternal(json.children[1], node);
       }
     }
 
@@ -297,7 +317,7 @@ export class ELBuilder {
 
     if (json.children) {
       json.children.forEach((childJson) => {
-        const child = this.build(childJson, node);
+        const child = this.buildInternal(childJson, node);
         node.appendChild(child);
       });
     }
@@ -315,7 +335,7 @@ export class ELBuilder {
 
     if (json.children) {
       json.children.forEach((childJson) => {
-        const child = this.build(childJson, node);
+        const child = this.buildInternal(childJson, node);
         node.appendChild(child);
       });
     }
@@ -332,7 +352,7 @@ export class ELBuilder {
     node.properties = json.properties;
 
     if (json.children && json.children[0]) {
-      node.operand = this.build(json.children[0], node);
+      node.operand = this.buildInternal(json.children[0], node);
     }
 
     return node;
