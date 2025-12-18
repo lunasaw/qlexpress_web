@@ -1,0 +1,755 @@
+{
+  "$schema": "https://qlexpress.web/visual-flow-schema/v2.0.0",
+  "version": "2.0.0",
+  "metadata": {
+    "name": "蓝牙开门规则",
+    "description": "处理蓝牙APP开门指令，支持认证、开门、关门、状态查询等操作",
+    "author": "qlexpress",
+    "createTime": "2025-01-01T00:00:00Z",
+    "sourceFile": "blueTooth.groovy",
+    "tags": ["bluetooth", "door", "iot"]
+  },
+
+  "imports": [
+    "com.alibaba.fastjson2.JSON",
+    "com.alibaba.fastjson2.JSONArray",
+    "com.alibaba.fastjson2.JSONObject",
+    "com.weidian.app24h.iot.plugin.api.enums.DeviceType",
+    "com.weidian.app24h.iot.plugin.api.enums.DoorStatusEnum",
+    "com.weidian.app24h.iot.plugin.api.enums.DynamicConfigKeyEnum",
+    "com.weidian.app24h.iot.plugin.api.enums.GlobalContextKeyEnum",
+    "com.weidian.app24h.iot.plugin.api.enums.IotDeviceTypeEnum",
+    "com.weidian.app24h.iot.plugin.api.service.IShopConfigManager",
+    "com.weidian.app24h.iot.plugin.api.utils.DeviceHardware",
+    "com.weidian.app24h.iot.plugin.api.utils.LogUtils",
+    "com.weidian.app24h.iot.plugin.ble.dto.BleCommandVO",
+    "com.weidian.app24h.iot.plugin.ble.dto.BleDoorLockVO",
+    "com.weidian.app24h.iot.plugin.ble.lib.advertise.BleCharacteristic",
+    "com.weidian.app24h.iot.plugin.ble.model.AppBluetoothBleRespModel",
+    "com.weidian.app24h.iot.plugin.ble.model.AppBluetoothCommandModel",
+    "com.weidian.app24h.iot.plugin.ble.model.AppBluetoothCommandReponse",
+    "com.weidian.app24h.iot.plugin.ble.model.AppBluetoothDoorStatusModel",
+    "com.weidian.app24h.iot.plugin.ble.model.AppBluetoothOperateTypeEnum",
+    "com.weidian.app24h.iot.plugin.ble.model.ConnectedBluetoothModel",
+    "com.weidian.app24h.iot.plugin.common.constant.GmsAckTypeEnum",
+    "com.weidian.app24h.iot.plugin.common.dto.GmsModel",
+    "com.weidian.app24h.iot.plugin.common.dto.ack.LocalDoorAckModel",
+    "com.weidian.app24h.iot.plugin.common.engine.common.CommonComponent",
+    "com.weidian.app24h.iot.plugin.common.enums.BleCommandTypeEnum",
+    "com.weidian.app24h.iot.plugin.common.service.CustomerAiVoiceManager",
+    "com.weidian.app24h.iot.plugin.common.service.edge.DeviceAdapter",
+    "com.weidian.app24h.iot.plugin.common.service.edge.ShopConfigManager",
+    "com.weidian.app24h.iot.plugin.common.utils.AckAdapter",
+    "com.weidian.app24h.iot.plugin.common.utils.AesUtils",
+    "com.weidian.app24h.iot.plugin.common.utils.GmsModel2AckModelUtil",
+    "com.weidian.app24h.iot.plugin.common.utils.GsonUtils",
+    "com.weidian.app24h.iot.plugin.horn.constant.IotHornTypeEnum",
+    "com.weidian.app24h.iot.plugin.horn.constant.RawUtils",
+    "com.weidian.iot.sdk.device.client.model.CommandRsp",
+    "com.weidian.iot.sdk.device.client.model.req.InvokeFunction",
+    "com.weidian.iot.sdk.device.service.DeviceService"
+  ],
+
+  "functions": [
+    {
+      "id": "func_executeAppBluetoothCommand",
+      "name": "executeAppBluetoothCommand",
+      "description": "执行蓝牙命令主入口",
+      "parameters": [
+        {
+          "name": "appBluetoothCommandModel",
+          "type": "AppBluetoothCommandModel",
+          "description": "蓝牙命令模型"
+        },
+        {
+          "name": "characteristic",
+          "type": "BleCharacteristic",
+          "description": "蓝牙特征"
+        }
+      ],
+      "returnType": "AppBluetoothCommandReponse",
+      "body": {
+        "entryNode": "func1_start",
+        "nodes": [
+          {
+            "id": "func1_start",
+            "type": "start",
+            "data": { "label": "开始" }
+          },
+          {
+            "id": "func1_log_1",
+            "type": "expression",
+            "data": {
+              "label": "记录日志",
+              "expression": {
+                "type": "static",
+                "className": "LogUtils",
+                "methodName": "infoRule",
+                "arguments": [
+                  { "type": "literal", "value": "蓝牙规则  执行 executeAppBluetoothCommand", "dataType": "String" }
+                ]
+              }
+            }
+          },
+          {
+            "id": "func1_assign_response",
+            "type": "assignment",
+            "data": {
+              "label": "创建响应对象",
+              "variable": "appBluetoothCommandReponse",
+              "variableType": "AppBluetoothCommandReponse",
+              "value": {
+                "type": "new",
+                "className": "AppBluetoothCommandReponse",
+                "arguments": []
+              }
+            }
+          },
+          {
+            "id": "func1_assign_temp",
+            "type": "assignment",
+            "data": {
+              "label": "类型转换",
+              "variable": "temp",
+              "variableType": "AppBluetoothCommandModel",
+              "value": {
+                "type": "cast",
+                "targetType": "AppBluetoothCommandModel",
+                "expression": { "type": "variable", "name": "appBluetoothCommandModel" }
+              }
+            }
+          },
+          {
+            "id": "func1_assign_type",
+            "type": "assignment",
+            "data": {
+              "label": "获取类型",
+              "variable": "type",
+              "variableType": "Integer",
+              "value": {
+                "type": "method",
+                "object": { "type": "variable", "name": "temp" },
+                "methodName": "getType",
+                "arguments": []
+              }
+            }
+          },
+          {
+            "id": "func1_if_connected",
+            "type": "if",
+            "data": {
+              "label": "检查连接状态",
+              "condition": {
+                "type": "operator",
+                "operator": "!=",
+                "left": { "type": "variable", "name": "connectedModel" },
+                "right": { "type": "literal", "value": null }
+              },
+              "thenBranch": "func1_set_blekey",
+              "elseBranch": null
+            }
+          },
+          {
+            "id": "func1_set_blekey",
+            "type": "expression",
+            "data": {
+              "label": "设置BLE密钥",
+              "expression": {
+                "type": "method",
+                "object": { "type": "variable", "name": "connectedModel" },
+                "methodName": "setBleKey",
+                "arguments": [
+                  { "type": "literal", "value": true, "dataType": "Boolean" }
+                ]
+              }
+            }
+          },
+          {
+            "id": "func1_set_type",
+            "type": "expression",
+            "data": {
+              "label": "设置响应类型",
+              "expression": {
+                "type": "method",
+                "object": { "type": "variable", "name": "appBluetoothCommandReponse" },
+                "methodName": "setType",
+                "arguments": [
+                  { "type": "variable", "name": "type" }
+                ]
+              }
+            }
+          },
+          {
+            "id": "func1_create_result",
+            "type": "assignment",
+            "data": {
+              "label": "创建结果对象",
+              "variable": "result",
+              "variableType": "JSONObject",
+              "value": {
+                "type": "new",
+                "className": "JSONObject",
+                "arguments": []
+              }
+            }
+          },
+          {
+            "id": "func1_if_type",
+            "type": "if",
+            "data": {
+              "label": "类型分支判断",
+              "condition": {
+                "type": "operator",
+                "operator": "==",
+                "left": { "type": "variable", "name": "type" },
+                "right": { "type": "literal", "value": 1, "dataType": "Integer" }
+              },
+              "thenBranch": "func1_type1_block",
+              "elseIfBranches": [
+                {
+                  "condition": {
+                    "type": "operator",
+                    "operator": "==",
+                    "left": { "type": "variable", "name": "type" },
+                    "right": { "type": "literal", "value": 2, "dataType": "Integer" }
+                  },
+                  "branch": "func1_type2_block"
+                },
+                {
+                  "condition": {
+                    "type": "operator",
+                    "operator": "==",
+                    "left": { "type": "variable", "name": "type" },
+                    "right": { "type": "literal", "value": 3, "dataType": "Integer" }
+                  },
+                  "branch": "func1_type3_block"
+                },
+                {
+                  "condition": {
+                    "type": "operator",
+                    "operator": "==",
+                    "left": { "type": "variable", "name": "type" },
+                    "right": { "type": "literal", "value": 5, "dataType": "Integer" }
+                  },
+                  "branch": "func1_type5_block"
+                }
+              ],
+              "elseBranch": null
+            }
+          },
+          {
+            "id": "func1_type1_block",
+            "type": "block",
+            "data": {
+              "label": "认证处理",
+              "statements": [
+                {
+                  "type": "expression",
+                  "expression": {
+                    "type": "static",
+                    "className": "LogUtils",
+                    "methodName": "infoRule",
+                    "arguments": [
+                      {
+                        "type": "operator",
+                        "operator": "+",
+                        "left": { "type": "literal", "value": "蓝牙规则 执行 Bluetooth type is " },
+                        "right": { "type": "variable", "name": "type" }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "assignment",
+                  "variable": "resultData",
+                  "variableType": "String",
+                  "value": {
+                    "type": "cast",
+                    "targetType": "String",
+                    "expression": {
+                      "type": "function",
+                      "functionName": "authAppBluetooth",
+                      "arguments": [
+                        { "type": "variable", "name": "appBluetoothCommandModel" },
+                        { "type": "variable", "name": "appBluetoothCommandReponse" }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "expression",
+                  "expression": {
+                    "type": "method",
+                    "object": { "type": "variable", "name": "result" },
+                    "methodName": "put",
+                    "arguments": [
+                      { "type": "literal", "value": "verify" },
+                      { "type": "variable", "name": "resultData" }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "func1_type2_block",
+            "type": "block",
+            "data": {
+              "label": "开门操作",
+              "statements": [
+                {
+                  "type": "assignment",
+                  "variable": "resultData1",
+                  "variableType": "JSONArray",
+                  "value": {
+                    "type": "cast",
+                    "targetType": "JSONArray",
+                    "expression": {
+                      "type": "function",
+                      "functionName": "executeDoorOperate",
+                      "arguments": [
+                        { "type": "variable", "name": "appBluetoothCommandModel" },
+                        { "type": "variable", "name": "appBluetoothCommandReponse" }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "expression",
+                  "expression": {
+                    "type": "method",
+                    "object": { "type": "variable", "name": "result" },
+                    "methodName": "put",
+                    "arguments": [
+                      { "type": "literal", "value": "door" },
+                      { "type": "variable", "name": "resultData1" }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "func1_type3_block",
+            "type": "block",
+            "data": {
+              "label": "状态查询",
+              "statements": [
+                {
+                  "type": "assignment",
+                  "variable": "resultData2",
+                  "variableType": "JSONArray",
+                  "value": {
+                    "type": "cast",
+                    "targetType": "JSONArray",
+                    "expression": {
+                      "type": "function",
+                      "functionName": "readDoorStatus",
+                      "arguments": []
+                    }
+                  }
+                },
+                {
+                  "type": "expression",
+                  "expression": {
+                    "type": "method",
+                    "object": { "type": "variable", "name": "result" },
+                    "methodName": "put",
+                    "arguments": [
+                      { "type": "literal", "value": "door" },
+                      { "type": "variable", "name": "resultData2" }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "func1_type5_block",
+            "type": "block",
+            "data": {
+              "label": "通知认证设备",
+              "statements": [
+                {
+                  "type": "assignment",
+                  "variable": "resultData3",
+                  "variableType": "String",
+                  "value": {
+                    "type": "cast",
+                    "targetType": "String",
+                    "expression": {
+                      "type": "function",
+                      "functionName": "notifyAppExistAuthed",
+                      "arguments": []
+                    }
+                  }
+                },
+                {
+                  "type": "expression",
+                  "expression": {
+                    "type": "method",
+                    "object": { "type": "variable", "name": "result" },
+                    "methodName": "put",
+                    "arguments": [
+                      { "type": "literal", "value": "notify" },
+                      { "type": "variable", "name": "resultData3" }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "func1_return",
+            "type": "return",
+            "data": {
+              "label": "返回响应",
+              "value": { "type": "variable", "name": "appBluetoothCommandReponse" }
+            }
+          },
+          {
+            "id": "func1_end",
+            "type": "end",
+            "data": { "label": "结束" }
+          }
+        ],
+        "edges": [
+          { "id": "e1", "source": "func1_start", "target": "func1_log_1" },
+          { "id": "e2", "source": "func1_log_1", "target": "func1_assign_response" },
+          { "id": "e3", "source": "func1_assign_response", "target": "func1_assign_temp" },
+          { "id": "e4", "source": "func1_assign_temp", "target": "func1_assign_type" },
+          { "id": "e5", "source": "func1_assign_type", "target": "func1_if_connected" },
+          { "id": "e6", "source": "func1_if_connected", "target": "func1_set_blekey", "sourceHandle": "then" },
+          { "id": "e7", "source": "func1_if_connected", "target": "func1_set_type", "sourceHandle": "next" },
+          { "id": "e8", "source": "func1_set_blekey", "target": "func1_set_type" },
+          { "id": "e9", "source": "func1_set_type", "target": "func1_create_result" },
+          { "id": "e10", "source": "func1_create_result", "target": "func1_if_type" },
+          { "id": "e11", "source": "func1_if_type", "target": "func1_type1_block", "sourceHandle": "then" },
+          { "id": "e12", "source": "func1_if_type", "target": "func1_type2_block", "sourceHandle": "elseIf_0" },
+          { "id": "e13", "source": "func1_if_type", "target": "func1_type3_block", "sourceHandle": "elseIf_1" },
+          { "id": "e14", "source": "func1_if_type", "target": "func1_type5_block", "sourceHandle": "elseIf_2" },
+          { "id": "e15", "source": "func1_type1_block", "target": "func1_return" },
+          { "id": "e16", "source": "func1_type2_block", "target": "func1_return" },
+          { "id": "e17", "source": "func1_type3_block", "target": "func1_return" },
+          { "id": "e18", "source": "func1_type5_block", "target": "func1_return" },
+          { "id": "e19", "source": "func1_if_type", "target": "func1_return", "sourceHandle": "next" },
+          { "id": "e20", "source": "func1_return", "target": "func1_end" }
+        ]
+      }
+    },
+    {
+      "id": "func_notifyAppExistAuthed",
+      "name": "notifyAppExistAuthed",
+      "description": "通知APP存在已认证设备",
+      "parameters": [],
+      "returnType": "String",
+      "body": {
+        "entryNode": "func2_start",
+        "nodes": [
+          {
+            "id": "func2_start",
+            "type": "start",
+            "data": { "label": "开始" }
+          },
+          {
+            "id": "func2_create_json",
+            "type": "assignment",
+            "data": {
+              "label": "创建JSON对象",
+              "variable": "jsonObject",
+              "variableType": "JSONObject",
+              "value": {
+                "type": "new",
+                "className": "JSONObject",
+                "arguments": []
+              }
+            }
+          },
+          {
+            "id": "func2_put_type",
+            "type": "expression",
+            "data": {
+              "label": "设置类型",
+              "expression": {
+                "type": "method",
+                "object": { "type": "variable", "name": "jsonObject" },
+                "methodName": "put",
+                "arguments": [
+                  { "type": "literal", "value": "type" },
+                  {
+                    "type": "field_access",
+                    "object": { "type": "variable", "name": "AppBluetoothOperateTypeEnum" },
+                    "field": "NOTIFY_APP_EXIST_AUTHED_DEVICE"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "func2_put_data",
+            "type": "expression",
+            "data": {
+              "label": "设置数据",
+              "expression": {
+                "type": "method",
+                "object": { "type": "variable", "name": "jsonObject" },
+                "methodName": "put",
+                "arguments": [
+                  { "type": "literal", "value": "data" },
+                  { "type": "literal", "value": "" }
+                ]
+              }
+            }
+          },
+          {
+            "id": "func2_return",
+            "type": "return",
+            "data": {
+              "label": "返回JSON字符串",
+              "value": {
+                "type": "method",
+                "object": { "type": "variable", "name": "jsonObject" },
+                "methodName": "toJSONString",
+                "arguments": []
+              }
+            }
+          },
+          {
+            "id": "func2_end",
+            "type": "end",
+            "data": { "label": "结束" }
+          }
+        ],
+        "edges": [
+          { "id": "e1", "source": "func2_start", "target": "func2_create_json" },
+          { "id": "e2", "source": "func2_create_json", "target": "func2_put_type" },
+          { "id": "e3", "source": "func2_put_type", "target": "func2_put_data" },
+          { "id": "e4", "source": "func2_put_data", "target": "func2_return" },
+          { "id": "e5", "source": "func2_return", "target": "func2_end" }
+        ]
+      }
+    },
+    {
+      "id": "func_authAppBluetooth",
+      "name": "authAppBluetooth",
+      "description": "蓝牙认证",
+      "parameters": [
+        { "name": "appBluetoothCommandModel", "type": "AppBluetoothCommandModel" },
+        { "name": "appBluetoothCommandReponse", "type": "AppBluetoothCommandReponse" }
+      ],
+      "returnType": "String",
+      "body": {
+        "entryNode": "func3_start",
+        "nodes": [],
+        "edges": []
+      }
+    },
+    {
+      "id": "func_decryptCommand",
+      "name": "decryptCommand",
+      "description": "解密蓝牙命令",
+      "parameters": [
+        { "name": "bleCommandContent", "type": "String" }
+      ],
+      "returnType": "String",
+      "body": {
+        "entryNode": "func4_start",
+        "nodes": [],
+        "edges": []
+      }
+    },
+    {
+      "id": "func_executeDoorOperate",
+      "name": "executeDoorOperate",
+      "description": "执行门操作",
+      "parameters": [
+        { "name": "appBluetoothCommandModel", "type": "AppBluetoothCommandModel" },
+        { "name": "appBluetoothCommandReponse", "type": "AppBluetoothCommandReponse" }
+      ],
+      "returnType": "JSONArray",
+      "body": {
+        "entryNode": "func5_start",
+        "nodes": [],
+        "edges": []
+      }
+    },
+    {
+      "id": "func_readDoorStatus",
+      "name": "readDoorStatus",
+      "description": "读取门状态",
+      "parameters": [],
+      "returnType": "JSONArray",
+      "body": {
+        "entryNode": "func6_start",
+        "nodes": [],
+        "edges": []
+      }
+    }
+  ],
+
+  "nodes": [
+    {
+      "id": "main_start",
+      "type": "start",
+      "position": { "x": 250, "y": 50 },
+      "data": { "label": "规则入口" }
+    },
+    {
+      "id": "main_assign_1",
+      "type": "assignment",
+      "position": { "x": 250, "y": 150 },
+      "data": {
+        "label": "序列化蓝牙命令",
+        "variable": "aBCMStr",
+        "variableType": "String",
+        "value": {
+          "type": "static",
+          "className": "JSON",
+          "methodName": "toJSONString",
+          "arguments": [
+            { "type": "variable", "name": "appBluetoothCommandModel" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "main_assign_2",
+      "type": "assignment",
+      "position": { "x": 250, "y": 250 },
+      "data": {
+        "label": "序列化连接模型",
+        "variable": "connectedBleStr",
+        "variableType": "String",
+        "value": {
+          "type": "static",
+          "className": "JSON",
+          "methodName": "toJSONString",
+          "arguments": [
+            { "type": "variable", "name": "authedBluetoothModel" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "main_log_1",
+      "type": "expression",
+      "position": { "x": 250, "y": 350 },
+      "data": {
+        "label": "记录日志",
+        "expression": {
+          "type": "static",
+          "className": "LogUtils",
+          "methodName": "infoRule",
+          "arguments": [
+            {
+              "type": "operator",
+              "operator": "+",
+              "left": { "type": "literal", "value": "蓝牙规则 Bluetooth aBCM is " },
+              "right": { "type": "variable", "name": "aBCMStr" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "main_assign_3",
+      "type": "assignment",
+      "position": { "x": 250, "y": 450 },
+      "data": {
+        "label": "解析蓝牙命令",
+        "variable": "aBCM",
+        "variableType": "AppBluetoothCommandModel",
+        "value": {
+          "type": "cast",
+          "targetType": "AppBluetoothCommandModel",
+          "expression": {
+            "type": "static",
+            "className": "JSON",
+            "methodName": "parseObject",
+            "arguments": [
+              { "type": "variable", "name": "aBCMStr" },
+              {
+                "type": "field_access",
+                "object": { "type": "variable", "name": "AppBluetoothCommandModel" },
+                "field": "class"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "main_assign_4",
+      "type": "assignment",
+      "position": { "x": 250, "y": 550 },
+      "data": {
+        "label": "解析连接模型",
+        "variable": "connectedModel",
+        "variableType": "ConnectedBluetoothModel",
+        "value": {
+          "type": "cast",
+          "targetType": "ConnectedBluetoothModel",
+          "expression": {
+            "type": "static",
+            "className": "JSON",
+            "methodName": "parseObject",
+            "arguments": [
+              { "type": "variable", "name": "connectedBleStr" },
+              {
+                "type": "field_access",
+                "object": { "type": "variable", "name": "ConnectedBluetoothModel" },
+                "field": "class"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "main_assign_5",
+      "type": "assignment",
+      "position": { "x": 250, "y": 650 },
+      "data": {
+        "label": "类型转换characteristic",
+        "variable": "gatt",
+        "variableType": "BleCharacteristic",
+        "value": {
+          "type": "cast",
+          "targetType": "BleCharacteristic",
+          "expression": { "type": "variable", "name": "characteristic" }
+        }
+      }
+    },
+    {
+      "id": "main_call_execute",
+      "type": "function_call",
+      "position": { "x": 250, "y": 750 },
+      "data": {
+        "label": "执行蓝牙命令",
+        "functionName": "executeAppBluetoothCommand",
+        "arguments": [
+          { "type": "variable", "name": "aBCM" },
+          { "type": "variable", "name": "gatt" }
+        ],
+        "resultVariable": null
+      }
+    },
+    {
+      "id": "main_end",
+      "type": "end",
+      "position": { "x": 250, "y": 850 },
+      "data": { "label": "规则结束" }
+    }
+  ],
+
+  "edges": [
+    { "id": "main_e1", "source": "main_start", "target": "main_assign_1" },
+    { "id": "main_e2", "source": "main_assign_1", "target": "main_assign_2" },
+    { "id": "main_e3", "source": "main_assign_2", "target": "main_log_1" },
+    { "id": "main_e4", "source": "main_log_1", "target": "main_assign_3" },
+    { "id": "main_e5", "source": "main_assign_3", "target": "main_assign_4" },
+    { "id": "main_e6", "source": "main_assign_4", "target": "main_assign_5" },
+    { "id": "main_e7", "source": "main_assign_5", "target": "main_call_execute" },
+    { "id": "main_e8", "source": "main_call_execute", "target": "main_end" }
+  ]
+}

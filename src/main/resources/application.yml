@@ -12,3 +12,21 @@ logging:
   level:
     root: INFO
     com.ql.qlexpress.web: DEBUG
+
+# LiteFlow 配置
+liteflow:
+  # 规则文件配置 (全动态模式下可不配置)
+  rule-source-ext-data-map:
+    # 可以留空，使用代码动态加载
+  # 打印执行日志
+  print-execution-log: true
+  # 是否打印liteflow banner
+  print-banner: true
+  # 脚本支持
+  script-enable: true
+  # 默认脚本语言
+  script-language: qlexpress
+  # 监控设置
+  monitor:
+    enable-log: true
+    period: 300000

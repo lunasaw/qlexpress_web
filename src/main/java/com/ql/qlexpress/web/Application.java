@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * @author qlexpress
  * @version 1.0
- * @date 2024/01/15
+ * @date 2025/12/16
  */
 @SpringBootApplication
 public class Application {

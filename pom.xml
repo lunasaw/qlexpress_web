@@ -19,7 +19,7 @@
         <spring-boot.version>2.7.18</spring-boot.version>
         <qlexpress4.version>4.0.7</qlexpress4.version>
         <luna-common.version>2.6.8</luna-common.version>
-        <httpclient5.version>5.2.1</httpclient5.version>
+        <liteflow.version>2.15.2</liteflow.version>
     </properties>
 
     <developers>
@@ -49,11 +49,6 @@
                 <groupId>io.github.lunasaw</groupId>
                 <artifactId>luna-common</artifactId>
                 <version>${luna-common.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.httpcomponents.client5</groupId>
-                <artifactId>httpclient5</artifactId>
-                <version>${httpclient5.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -100,7 +95,33 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <optional>true</optional>
+        </dependency>
+
+        <!-- Validation -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- LiteFlow 规则引擎 -->
+        <dependency>
+            <groupId>com.yomahub</groupId>
+            <artifactId>liteflow-spring-boot-starter</artifactId>
+            <version>${liteflow.version}</version>
+        </dependency>
+
+        <!-- LiteFlow QLExpress 脚本支持 -->
+        <dependency>
+            <groupId>com.yomahub</groupId>
+            <artifactId>liteflow-script-qlexpress</artifactId>
+            <version>${liteflow.version}</version>
         </dependency>
     </dependencies>
 
@@ -128,6 +149,11 @@
                     <target>1.8</target>
                     <encoding>UTF-8</encoding>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.2</version>
             </plugin>
         </plugins>
     </build>
