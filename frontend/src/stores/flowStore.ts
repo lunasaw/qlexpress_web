@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Graph, Cell, Node } from '@antv/x6';
+import type { Graph, Node } from '@antv/x6';
 import type { FlowRequest } from '../types/flow';
 import type { QLComponent } from '../types/component';
 import { ELNode, ELBuilder } from '../components/LiteFlowEditor/model';
@@ -123,8 +123,11 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
         loading: false,
       });
 
-      // 同步到画布
-      get().syncToGraph();
+      // 同步到画布 - 延迟执行以确保 graph 已初始化
+      // 使用 setTimeout 确保在下一个事件循环中执行
+      setTimeout(() => {
+        get().syncToGraph();
+      }, 0);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : '加载流程失败';
       set({ error: message, loading: false });
@@ -333,15 +336,24 @@ export const useFlowStore = create<FlowState & FlowActions>((set, get) => ({
     const { graph, rootNode } = get();
     if (!graph || !rootNode) return;
 
+    // 从 ELNode 生成 X6 cells metadata
+    const cellsMetadata = rootNode.toCells();
+
     // 清空画布
     graph.clearCells();
 
-    // 从 ELNode 生成 X6 cells
-    const cells = rootNode.toCells() as Cell[];
-
-    // 添加到画布
-    if (cells.length > 0) {
-      graph.addCell(cells);
+    if (cellsMetadata.length > 0) {
+      // 从 metadata 创建实际的 Cell 实例
+      const cells = cellsMetadata.map((metadata) => {
+        // 根据 shape 判断是节点还是边
+        if (metadata.shape?.includes('edge') || metadata.source || metadata.target) {
+          return graph.createEdge(metadata);
+        } else {
+          return graph.createNode(metadata);
+        }
+      });
+      // 使用 resetCells 添加实际的 Cell 实例
+      graph.resetCells(cells);
     }
 
     // 自动布局

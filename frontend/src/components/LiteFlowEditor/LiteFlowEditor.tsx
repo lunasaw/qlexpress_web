@@ -139,12 +139,42 @@ const LiteFlowEditor: React.FC<LiteFlowEditorProps> = ({
     }
   }, [graph, getZoom, initDnd]);
 
-  // 加载流程
+  // 加载流程 - 确保 graph 初始化后再加载
   useEffect(() => {
-    if (flowId) {
+    if (flowId && graph) {
       loadFlow(flowId);
     }
-  }, [flowId, loadFlow]);
+  }, [flowId, graph, loadFlow]);
+
+  // 当 rootNode 变化且 graph 存在时，同步到画布
+  useEffect(() => {
+    if (rootNode && graph) {
+      // 从 ELNode 生成 X6 cells metadata
+      const cellsMetadata = rootNode.toCells();
+
+      // 清空画布
+      graph.clearCells();
+
+      if (cellsMetadata.length > 0) {
+        // 从 metadata 创建实际的 Cell 实例
+        const cells = cellsMetadata.map((metadata) => {
+          // 根据 shape 判断是节点还是边
+          if (metadata.shape?.includes('edge') || metadata.source || metadata.target) {
+            return graph.createEdge(metadata);
+          } else {
+            return graph.createNode(metadata);
+          }
+        });
+        // 使用 resetCells 添加实际的 Cell 实例
+        graph.resetCells(cells);
+      }
+
+      // 自动适应视图
+      setTimeout(() => {
+        graph.zoomToFit({ padding: 50, maxScale: 1 });
+      }, 100);
+    }
+  }, [rootNode, graph]);
 
   // 生成 EL 表达式
   useEffect(() => {
