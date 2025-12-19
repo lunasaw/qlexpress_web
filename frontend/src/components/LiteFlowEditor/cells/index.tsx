@@ -1,137 +1,94 @@
-import { Graph, Node } from '@antv/x6';
+import React from 'react';
+import { Node } from '@antv/x6';
 import { register } from '@antv/x6-react-shape';
-import {
-  NODE_HEIGHT,
-  NODE_WIDTH,
-  NODE_TYPE_INTERMEDIATE_END,
-  LITEFLOW_EDGE,
-  LINE_COLOR,
-  ConditionTypeEnum,
-  NodeTypeEnum,
-} from '../constant';
+import { ConditionTypeEnum, NODE_HEIGHT, NODE_TYPE_INTERMEDIATE_END, NODE_WIDTH, NodeTypeEnum } from '../constant';
+/** AntV X6自定义节点 */
+// 开始 & 结束
+import {default as Start} from './start';
+import {default as End} from './end';
+// 顺序：串行、并行
+import {default as Then} from './then';
+import {default as When} from './when';
+import {default as Common} from './common';
+import {default as IntermediateEnd} from './intermediate-end';
+// 分支：选择、条件
+import {default as Switch} from './switch';
+import {default as If} from './if';
+// 循环：For、While
+import {default as For} from './for';
+import {default as While} from './while';
+import {default as Iterator} from './iterator';
+// 捕获异常：Catch
+import {default as Catch} from './catch';
+// 运算符：与或非
+import {default as And} from './and';
+import {default as Or} from './or';
+import {default as Not} from './not';
+// 子流程：Chain
+import {default as Chain} from './chain';
+// 其他辅助节点：虚节点
+import {default as Virtual} from './virtual';
 
-// AntV X6 自定义节点配置
-import Start from './nodes/start';
-import End from './nodes/end';
-import Then from './nodes/then';
-import When from './nodes/when';
-import Common from './nodes/common';
-import IntermediateEnd from './nodes/intermediate-end';
-import Switch from './nodes/switch';
-import If from './nodes/if';
-import For from './nodes/for';
-import While from './nodes/while';
-import Iterator from './nodes/iterator';
-import Catch from './nodes/catch';
-import And from './nodes/and';
-import Or from './nodes/or';
-import Not from './nodes/not';
-import Chain from './nodes/chain';
-import Virtual from './nodes/virtual';
+// AntV X6自定义节点的视图：使用React组件
+import {NodeBadge, NodeToolBar, NodeView} from '../components';
 
-// AntV X6 自定义节点的视图：使用 React 组件
-import { NodeBadge, NodeToolBar, NodeView } from '../components';
-
-/**
- * 注册所有自定义节点到 AntV X6
- */
-export function registerNodes() {
-  const nodes: LiteFlowNode[] = [
-    Start,
-    End,
-    Then,
-    When,
-    Common,
-    IntermediateEnd,
-    If,
-    Switch,
-    For,
-    While,
-    Iterator,
-    Catch,
-    And,
-    Or,
-    Not,
-    Virtual,
-    Chain,
-  ];
-
-  nodes.forEach((cell: LiteFlowNode) => {
-    const { type, label, icon, node = {} } = cell;
-    register({
-      shape: type,
-      inherit: 'react-shape',
-      component: ({ node }: { node: Node }) => (
+/** 注册自定义节点到AntV X6 */
+[
+  Start,
+  End,
+  Then,
+  When,
+  Common,
+  IntermediateEnd,
+  If,
+  Switch,
+  For,
+  While,
+  Iterator,
+  Catch,
+  And,
+  Or,
+  Not,
+  Virtual,
+  Chain,
+].forEach((cell: LiteFlowNode) => {
+  // 注册AntV X6节点
+  const {type, label, icon, node = {}} = cell;
+  register({
+    shape: type,
+    inherit: 'react-shape',
+    component: ({ node }: { node: Node }) => {
+      return (
         <NodeView node={node} icon={icon}>
-          <NodeBadge node={node} />
-          <NodeToolBar node={node} />
+          <NodeBadge node={node}/>
+          <NodeToolBar node={node}/>
         </NodeView>
-      ),
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
-      attrs: {
-        label: {
-          refX: 0.5,
-          refY: '100%',
-          refY2: 20,
-          text: label,
-          fill: '#333',
-          fontSize: 13,
-          textAnchor: 'middle',
-          textVerticalAnchor: 'middle',
-          textWrap: {
-            width: 80,
-            height: 60,
-            ellipsis: true,
-            breakWord: true,
-          },
+      );
+    },
+    width: NODE_WIDTH,
+    height: NODE_HEIGHT,
+    attrs: {
+      label: {
+        refX: 0.5,
+        refY: '100%',
+        refY2: 20,
+        text: label,
+        fill: '#333',
+        fontSize: 13,
+        textAnchor: 'middle',
+        textVerticalAnchor: 'middle',
+        textWrap: {
+          width: 80,
+          height: 60,
+          ellipsis: true,
+          breakWord: true,
         },
       },
-      ...node,
-    });
+    },
+    ...node,
   });
+});
 
-  // 注册边样式
-  Graph.registerEdge(
-    LITEFLOW_EDGE,
-    {
-      inherit: 'edge',
-      attrs: {
-        line: {
-          stroke: LINE_COLOR,
-          strokeWidth: 1,
-          targetMarker: null,
-        },
-      },
-      router: {
-        name: 'manhattan',
-        args: {
-          padding: 10,
-        },
-      },
-      connector: {
-        name: 'rounded',
-        args: {
-          radius: 4,
-        },
-      },
-    },
-    true
-  );
-
-  // 兼容旧的 flow-edge
-  Graph.registerEdge(
-    'flow-edge',
-    {
-      inherit: LITEFLOW_EDGE,
-    },
-    true
-  );
-
-  console.log('LiteFlow 节点注册完成');
-}
-
-// 导出节点配置
 export {
   Start,
   End,
@@ -152,7 +109,6 @@ export {
   Chain,
 };
 
-// 节点分组定义
 export interface IGroupItem {
   key: string;
   name: string;
@@ -162,15 +118,15 @@ export interface IGroupItem {
 export const NODE_GROUP: IGroupItem = {
   key: 'node',
   name: '节点类',
-  cellTypes: [{ ...Common, type: NodeTypeEnum.COMMON, shape: Common.type }],
+  cellTypes: [{...Common, type: NodeTypeEnum.COMMON, shape: Common.type}],
 };
 
 export const SEQUENCE_GROUP: IGroupItem = {
   key: 'sequence',
   name: '顺序类',
   cellTypes: [
-    { ...Then, type: ConditionTypeEnum.THEN, shape: Then.type },
-    { ...When, type: ConditionTypeEnum.WHEN, shape: When.type },
+    {...Then, type: ConditionTypeEnum.THEN, shape: Then.type},
+    {...When, type: ConditionTypeEnum.WHEN, shape: When.type},
   ],
 };
 
@@ -178,8 +134,8 @@ export const BRANCH_GROUP: IGroupItem = {
   key: 'branch',
   name: '分支类',
   cellTypes: [
-    { ...Switch, type: ConditionTypeEnum.SWITCH, shape: Switch.type },
-    { ...If, type: ConditionTypeEnum.IF, shape: If.type },
+    {...Switch, type: ConditionTypeEnum.SWITCH, shape: Switch.type},
+    {...If, type: ConditionTypeEnum.IF, shape: If.type},
   ],
 };
 
@@ -187,9 +143,9 @@ export const CONTROL_GROUP: IGroupItem = {
   key: 'control',
   name: '循环类',
   cellTypes: [
-    { ...For, type: ConditionTypeEnum.FOR, shape: For.type },
-    { ...While, type: ConditionTypeEnum.WHILE, shape: While.type },
-    { ...Iterator, type: ConditionTypeEnum.ITERATOR, shape: Iterator.type },
+    {...For, type: ConditionTypeEnum.FOR, shape: For.type},
+    {...While, type: ConditionTypeEnum.WHILE, shape: While.type},
+    {...Iterator, type: ConditionTypeEnum.ITERATOR, shape: Iterator.type},
   ],
 };
 
@@ -197,20 +153,15 @@ export const OTHER_GROUP: IGroupItem = {
   key: 'other',
   name: '其他类',
   cellTypes: [
-    { ...Catch, type: ConditionTypeEnum.CATCH, shape: Catch.type },
-    { ...And, type: ConditionTypeEnum.AND, shape: And.type },
-    { ...Or, type: ConditionTypeEnum.OR, shape: Or.type },
-    { ...Not, type: ConditionTypeEnum.NOT, shape: Not.type },
-    { ...Chain, type: ConditionTypeEnum.CHAIN, shape: Chain.type },
+    {...Catch, type: ConditionTypeEnum.CATCH, shape: Catch.type},
+    {...And, type: ConditionTypeEnum.AND, shape: And.type},
+    {...Or, type: ConditionTypeEnum.OR, shape: Or.type},
+    {...Not, type: ConditionTypeEnum.NOT, shape: Not.type},
+    {...Chain, type: ConditionTypeEnum.CHAIN, shape: Chain.type},
   ],
 };
 
-/**
- * 根据类型获取图标
- */
-export const getIconByType = (
-  nodeType: ConditionTypeEnum | NodeTypeEnum | string
-): string => {
+export const getIconByType = (nodeType: ConditionTypeEnum | NodeTypeEnum) => {
   switch (nodeType) {
     case ConditionTypeEnum.THEN:
       return Then.icon;
@@ -247,11 +198,8 @@ export const getIconByType = (
   }
 };
 
-/**
- * 根据节点类型获取对��的形状名称
- */
-export function getNodeShapeByType(nodeType: NodeTypeEnum | string): string {
-  switch (nodeType) {
+export function getNodeShapeByType(nodeType: NodeTypeEnum) : string {
+  switch(nodeType) {
     case NodeTypeEnum.BOOLEAN:
     case NodeTypeEnum.BOOLEAN_SCRIPT:
     case NodeTypeEnum.IF:
@@ -267,7 +215,7 @@ export function getNodeShapeByType(nodeType: NodeTypeEnum | string): string {
     case NodeTypeEnum.WHILE_SCRIPT:
       return NodeTypeEnum.WHILE;
     case NodeTypeEnum.ITERATOR:
-      return NodeTypeEnum.ITERATOR;
+        return NodeTypeEnum.ITERATOR;
     case NodeTypeEnum.BREAK:
     case NodeTypeEnum.BREAK_SCRIPT:
       return NODE_TYPE_INTERMEDIATE_END;
@@ -280,5 +228,3 @@ export function getNodeShapeByType(nodeType: NodeTypeEnum | string): string {
       return NodeTypeEnum.COMMON;
   }
 }
-
-export default registerNodes;

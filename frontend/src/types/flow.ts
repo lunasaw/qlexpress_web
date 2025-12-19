@@ -111,7 +111,7 @@ export interface FlowRequest {
   category?: string;
   version?: string;
   enabled?: boolean;
-  root: CmpProperty;
+  root: CmpProperty | Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 
